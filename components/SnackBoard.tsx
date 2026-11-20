@@ -13,10 +13,17 @@ import {
 } from "@/lib/browser";
 import { kstDateLabel, kstTimeLabel, relativeTime } from "@/lib/kst";
 import {
-  EMPTY_LABEL_MESSAGE,
   MAX_LABEL_LENGTH,
   MAX_MEMO_LENGTH,
+  REACTIONS,
+  reactionTotal,
+  SNACK_STATUSES,
+  STATUS_META,
   type DayView,
+  type HistoryResponse,
+  type PopularSnack,
+  type ReactionKey,
+  type SnackStatus,
   type StatusUpdateBody,
   type StorageMode,
 } from "@/lib/types";
@@ -43,9 +50,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요.";
 }
 
+/** 상태별 큰 카드 색상 클래스 (sold_out 은 hero--sold) */
+function heroClass(status: SnackStatus): string {
+  return status === "sold_out" ? "hero hero--sold" : `hero hero--${status}`;
+}
+
 export default function SnackBoard() {
   const [today, setToday] = useState<DayView | null>(null);
-  const [yesterday, setYesterday] = useState<DayView | null>(null);
   const [mode, setMode] = useState<StorageMode>("memory");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -53,7 +64,11 @@ export default function SnackBoard() {
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
+  const [reacting, setReacting] = useState<ReactionKey | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+
+  const [history, setHistory] = useState<DayView[]>([]);
+  const [popular, setPopular] = useState<PopularSnack | null>(null);
 
   const [labelDraft, setLabelDraft] = useState("");
   const [memoDraft, setMemoDraft] = useState("");
@@ -68,7 +83,7 @@ export default function SnackBoard() {
   const memoRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastArrivedRef = useRef<boolean | null>(null);
+  const lastStatusRef = useRef<SnackStatus | null>(null);
   const alertsOnRef = useRef(false);
 
   useEffect(() => {
@@ -97,19 +112,30 @@ export default function SnackBoard() {
     );
   }, []);
 
+  const refreshHistory = useCallback(async () => {
+    try {
+      const response = await fetch("/api/history", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = (await response.json()) as HistoryResponse;
+      setHistory(Array.isArray(payload.history) ? payload.history : []);
+      setPopular(payload.popular ?? null);
+    } catch {
+      // 히스토리는 보조 정보라서 실패해도 조용히 넘어갑니다. (다음 새로고침에서 다시 시도)
+    }
+  }, []);
+
   const applyStatus = useCallback(
     (payload: StatusPayload, options: { announce?: boolean } = {}) => {
       const day = payload.today;
-      const previousArrived = lastArrivedRef.current;
+      const previousStatus = lastStatusRef.current;
 
-      if (options.announce !== false && previousArrived === false && day.arrived) {
+      if (options.announce !== false && previousStatus !== null && previousStatus !== "arrived" && day.status === "arrived") {
         announceArrival(day);
       }
-      lastArrivedRef.current = day.arrived;
+      lastStatusRef.current = day.status;
 
       setToday(day);
       setMode(payload.storageMode);
-      if (payload.yesterday !== undefined) setYesterday(payload.yesterday);
 
       setPhotoUrl(
         day.hasPhoto
@@ -147,6 +173,7 @@ export default function SnackBoard() {
   // 첫 로드 + 자동 새로고침
   useEffect(() => {
     void refresh();
+    void refreshHistory();
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -162,7 +189,10 @@ export default function SnackBoard() {
     timer = setTimeout(() => void tick(), POLL_VISIBLE_MS);
 
     const onVisibility = () => {
-      if (document.visibilityState === "visible") void refresh({ silent: true });
+      if (document.visibilityState === "visible") {
+        void refresh({ silent: true });
+        void refreshHistory();
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -171,7 +201,7 @@ export default function SnackBoard() {
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [refresh]);
+  }, [refresh, refreshHistory]);
 
   // "3분 전" 같은 표기를 위해 주기적으로 시계를 갱신
   useEffect(() => {
@@ -239,29 +269,51 @@ export default function SnackBoard() {
     return payload;
   }
 
-  async function setArrived(arrived: boolean) {
+  async function setStatus(next: SnackStatus) {
     if (busy || !today) return;
     setBusy(true);
     try {
-      const body: StatusUpdateBody = { arrived };
-      if (labelDraft.trim() !== today.label) body.label = labelDraft;
-      if (memoDraft.trim() !== today.memo) body.memo = memoDraft;
+      const body: StatusUpdateBody = { status: next };
+      if (labelDraft.trim() !== today.label) body.label = labelDraft.trim();
+      if (memoDraft.trim() !== today.memo) body.memo = memoDraft.trim();
 
       const payload = await sendJson("/api/status", { method: "POST", body: JSON.stringify(body) });
       applyStatus(payload, { announce: false });
       setLastSyncAt(Date.now());
       setSyncError(null);
+      void refreshHistory();
+
+      const meta = STATUS_META[next];
       notify(
-        today.arrived === arrived
+        today.status === next
           ? "저장했어요."
-          : arrived
+          : next === "arrived"
             ? "도착했어요! 🍪 팀원 화면에도 곧 표시돼요."
-            : "아직 안 왔어요로 바꿨어요 ⏳",
+            : next === "sold_out"
+              ? `${meta.emoji} ${meta.label}로 바꿨어요. 팀원 화면에도 곧 표시돼요.`
+              : "아직 안 왔어요로 바꿨어요 ⏳",
       );
     } catch (error) {
       notify(errorMessage(error));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function react(type: ReactionKey) {
+    if (reacting || !today) return;
+    setReacting(type);
+    try {
+      const payload = await sendJson("/api/reaction", {
+        method: "POST",
+        body: JSON.stringify({ type }),
+      });
+      applyStatus(payload, { announce: false });
+      void refreshHistory();
+    } catch (error) {
+      notify(errorMessage(error));
+    } finally {
+      setReacting(null);
     }
   }
 
@@ -277,6 +329,7 @@ export default function SnackBoard() {
       applyStatus(payload, { announce: false });
       setLastSyncAt(Date.now());
       setSyncError(null);
+      void refreshHistory();
       notify("메모를 저장했어요 ✎");
     } catch (error) {
       notify(errorMessage(error));
@@ -327,16 +380,17 @@ export default function SnackBoard() {
 
   async function resetDay() {
     if (busy) return;
-    if (!window.confirm("오늘 기록(도착 여부·메모·사진)을 모두 지울까요?")) return;
+    if (!window.confirm("오늘 기록(상태·메모·사진·반응)을 모두 지울까요?")) return;
     setBusy(true);
     try {
       const payload = await sendJson("/api/status", {
         method: "POST",
         body: JSON.stringify({ reset: true }),
       });
-      lastArrivedRef.current = false;
+      lastStatusRef.current = null;
       applyStatus(payload, { announce: false });
       setLastSyncAt(Date.now());
+      void refreshHistory();
       notify("오늘 기록을 초기화했어요.");
     } catch (error) {
       notify(errorMessage(error));
@@ -354,8 +408,15 @@ export default function SnackBoard() {
     }
   }
 
-  const arrived = today?.arrived ?? false;
+  const status: SnackStatus = today?.status ?? "waiting";
+  const meta = STATUS_META[status];
+  const reactionCounts = today?.reactions;
+  const myReactionTotal = reactionCounts ? reactionTotal(reactionCounts) : 0;
   const dateLabel = today ? kstDateLabel(today.date) : "";
+  // 왕관은 인기 간식이 나온 날 중 가장 최근 줄에만 붙입니다. (같은 간식이 반복돼도 한 번만)
+  const popularTopDate = popular
+    ? (history.find((day) => day.label.trim() === popular.label)?.date ?? null)
+    : null;
 
   const syncLabel = syncError
     ? syncError
@@ -397,41 +458,69 @@ export default function SnackBoard() {
           </button>
         </header>
 
-        <div className={arrived ? "hero hero--arrived" : "hero hero--waiting"}>
-          <SnackBuddy arrived={arrived} />
+        <div className={heroClass(status)}>
+          <SnackBuddy status={status} />
           <p className="hero__status" aria-live="polite">
-            {loading && !today ? "불러오는 중…" : arrived ? "도착했어요!" : "아직 안 왔어요"}
+            {loading && !today ? "불러오는 중…" : meta.hero}
           </p>
           <p className="hero__detail">
-            {loading && !today
-              ? "잠시만요"
-              : arrived
-                ? today?.label || "얼른 가서 드세요!"
-                : today?.label || EMPTY_LABEL_MESSAGE}
+            {loading && !today ? "잠시만요" : today?.label || meta.emptyLabel}
           </p>
           {today?.memo ? <p className="hero__memo">{today.memo}</p> : null}
         </div>
 
-        <div className="switch" role="group" aria-label="간식 도착 여부">
-          <button
-            type="button"
-            className={!arrived ? "switch__button is-active" : "switch__button"}
-            aria-pressed={!arrived}
-            disabled={busy || !today}
-            onClick={() => void setArrived(false)}
-          >
-            <span aria-hidden="true">⏳</span> 아직 안 왔어요
-          </button>
-          <button
-            type="button"
-            className={arrived ? "switch__button is-active" : "switch__button"}
-            aria-pressed={arrived}
-            disabled={busy || !today}
-            onClick={() => void setArrived(true)}
-          >
-            <span aria-hidden="true">🍪</span> 도착했어요
-          </button>
+        <div className="switch" role="group" aria-label="오늘 간식 상태">
+          {SNACK_STATUSES.map((value) => {
+            const item = STATUS_META[value];
+            const active = status === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                data-status={value}
+                className={active ? "switch__button is-active" : "switch__button"}
+                aria-pressed={active}
+                disabled={busy || !today}
+                onClick={() => void setStatus(value)}
+              >
+                <span aria-hidden="true">{item.emoji}</span> {item.label}
+              </button>
+            );
+          })}
         </div>
+
+        <section className="reactions" aria-labelledby="reactions-title">
+          <div className="reactions__head">
+            <h2 className="reactions__title" id="reactions-title">
+              오늘 간식 어땠어요?
+            </h2>
+            <span className="reactions__total">
+              {myReactionTotal > 0 ? `반응 ${myReactionTotal}개` : "첫 반응을 남겨보세요"}
+            </span>
+          </div>
+          <div className="reactions__list">
+            {REACTIONS.map((item) => {
+              const count = reactionCounts?.[item.key] ?? 0;
+              const active = count > 0;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={active ? "reaction reaction--on" : "reaction"}
+                  onClick={() => void react(item.key)}
+                  disabled={!today || reacting !== null}
+                  aria-label={`${item.label} 반응 남기기 (지금 ${count}개)`}
+                >
+                  <span className="reaction__emoji" aria-hidden="true">
+                    {item.emoji}
+                  </span>
+                  <span className="reaction__label">{item.label}</span>
+                  <span className="reaction__count">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
         <form className="details" onSubmit={saveDetails}>
           <label className="field">
@@ -525,6 +614,71 @@ export default function SnackBoard() {
           />
         </section>
 
+        <section className="history" aria-labelledby="history-title">
+          <div className="history__head">
+            <h2 className="history__title" id="history-title">
+              📅 최근 간식 히스토리
+            </h2>
+            {popular ? (
+              <span className="history__popular" title={`${popular.label} · 반응 ${popular.total}개`}>
+                <span aria-hidden="true">👑</span> {popular.label} · {popular.total}개
+              </span>
+            ) : null}
+          </div>
+
+          {history.length > 0 ? (
+            <ul className="history__list">
+              {history.map((day) => {
+                const dayMeta = STATUS_META[day.status];
+                const total = reactionTotal(day.reactions);
+                const isToday = day.date === today?.date;
+                const isPopular = popularTopDate !== null && day.date === popularTopDate;
+                return (
+                  <li key={day.date} className={`history__item history__item--${day.status}`}>
+                    <span className="history__badge" aria-hidden="true">
+                      {dayMeta.emoji}
+                    </span>
+
+                    <div className="history__main">
+                      <p className="history__date">
+                        {isToday ? "오늘 · " : ""}
+                        {kstDateLabel(day.date)}
+                        <span className="history__status-text"> · {dayMeta.label}</span>
+                      </p>
+                      <p className="history__label">
+                        {isPopular ? (
+                          <span className="history__crown" aria-label="인기 간식">
+                            👑
+                          </span>
+                        ) : null}
+                        {day.label || dayMeta.emptyLabel}
+                      </p>
+                      {day.memo ? <p className="history__memo">{day.memo}</p> : null}
+                    </div>
+
+                    <div className="history__reactions">
+                      {total > 0 ? (
+                        REACTIONS.filter((item) => (day.reactions[item.key] ?? 0) > 0).map((item) => (
+                          <span key={item.key} className="history__reaction">
+                            <span aria-hidden="true">{item.emoji}</span>
+                            {(day.reactions[item.key] ?? 0).toString()}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="history__none">반응 없음</span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="history__empty">
+              아직 기록이 없어요. 오늘 간식 상태를 남기면 여기에 하루씩 쌓여요.
+            </p>
+          )}
+        </section>
+
         <footer className="board__footer">
           <p className="meta">
             <span className={`meta__dot meta__dot--${mode}`} aria-hidden="true" />
@@ -545,13 +699,6 @@ export default function SnackBoard() {
                 ? "아이폰은 공유 → ‘홈 화면에 추가’ 후에 알림을 켤 수 있어요. (iOS 16.4+)"
                 : "알림은 이 화면이 열려 있을 때 15초마다 확인해서 알려드려요. 알림이 안 뜨면 주소창 옆 설정에서 허용해 주세요."}
           </p>
-
-          {yesterday?.updatedAt ? (
-            <p className="yesterday">
-              어제 · {yesterday.arrived ? "도착 🍪" : "안 옴 ⏳"}
-              {yesterday.label ? ` · ${yesterday.label}` : ""} · {kstTimeLabel(yesterday.updatedAt)}
-            </p>
-          ) : null}
 
           <div className="footnotes">
             {today?.updatedAt ? (

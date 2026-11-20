@@ -2,16 +2,37 @@ import { kstDateLabel, kstTimeLabel } from "@/lib/kst";
 import { photoPreviewUrl, resolveSiteUrl } from "@/lib/site";
 import type { DayView } from "@/lib/types";
 
-const CARD_TITLE = "🍪 오늘 간식 도착했어요!";
-const BUTTON_TITLE = "간식 보드 열기 🍪";
-const SUMMARY = "간식 도착 알림 🍪";
+/** Teams 로 보내는 알림 종류 */
+export type TeamsNoticeKind = "arrived" | "sold_out";
+
+interface NoticeText {
+  /** 카드 제목 */
+  title: string;
+  /** 알림 목록에 보이는 한 줄 요약 */
+  summary: string;
+  /** 카드 아래 버튼 이름 */
+  button: string;
+}
+
+const NOTICES: Record<TeamsNoticeKind, NoticeText> = {
+  arrived: {
+    title: "🍪 오늘 간식 도착했어요!",
+    summary: "간식 도착 알림 🍪",
+    button: "간식 보드 열기 🍪",
+  },
+  sold_out: {
+    title: "💨 오늘 간식이 다 떨어졌어요!",
+    summary: "간식 품절 알림 💨",
+    button: "간식 보드 열기 🍪",
+  },
+};
 
 /** Adaptive Card 요소 (필요한 만큼만 정의) */
 type CardElement = Record<string, unknown>;
 
-function buildCardBody(day: DayView, siteUrl: string): CardElement[] {
+function buildCardBody(day: DayView, siteUrl: string, notice: NoticeText): CardElement[] {
   const body: CardElement[] = [
-    { type: "TextBlock", text: CARD_TITLE, weight: "Bolder", size: "Medium", wrap: true },
+    { type: "TextBlock", text: notice.title, weight: "Bolder", size: "Medium", wrap: true },
   ];
 
   if (day.hasPhoto) {
@@ -43,8 +64,8 @@ function buildCardBody(day: DayView, siteUrl: string): CardElement[] {
 }
 
 /** 링크를 붙여넣은 것처럼 보이도록 주소를 그대로 넣습니다. (Teams·카톡이 자동으로 링크 처리) */
-function buildFallbackText(day: DayView, siteUrl: string): string {
-  const lines = [CARD_TITLE];
+function buildFallbackText(day: DayView, siteUrl: string, notice: NoticeText): string {
+  const lines = [notice.title];
   if (day.label) lines.push(`간식: ${day.label}`);
   if (day.memo) lines.push(`메모: ${day.memo}`);
   if (day.updatedAt) lines.push(`기록: ${kstTimeLabel(day.updatedAt)}`);
@@ -56,6 +77,9 @@ function buildFallbackText(day: DayView, siteUrl: string): string {
  * 선택적 Microsoft Teams 알림.
  * Vercel 환경변수 TEAMS_WEBHOOK_URL 이 있을 때만 동작하고, 없으면 조용히 넘어갑니다.
  *
+ * - arrived  : "🍪 오늘 간식 도착했어요!"  ("아직 안 왔어요 → 도착했어요" 순간)
+ * - sold_out : "💨 오늘 간식이 다 떨어졌어요!" ("도착했어요 → 다 떨어졌어요" 순간, 하루 1회)
+ *
  * - Power Automate "워크플로우" 웹훅: adaptive card attachments 로 전달
  *   (제목 · 간식 종류 · 메모 · 시각 · 사진 미리보기 · "간식 보드 열기" 버튼)
  * - 예전 Office 365 커넥터(Incoming Webhook): 본문의 text 필드를 사용
@@ -64,17 +88,22 @@ function buildFallbackText(day: DayView, siteUrl: string): string {
  * 사이트 주소는 호출한 요청(request)의 헤더나 Vercel 환경변수에서 계산합니다.
  * 팀즈 채널을 새로 파서 웹훅을 다시 만들면 TEAMS_WEBHOOK_URL 만 교체하면 됩니다.
  */
-export async function notifyTeams(day: DayView, request?: Request): Promise<void> {
+export async function notifyTeams(
+  day: DayView,
+  request?: Request,
+  kind: TeamsNoticeKind = "arrived",
+): Promise<void> {
   const webhookUrl = process.env.TEAMS_WEBHOOK_URL?.trim();
   if (!webhookUrl) return;
 
+  const notice = NOTICES[kind];
   const siteUrl = resolveSiteUrl(request);
-  const text = buildFallbackText(day, siteUrl);
+  const text = buildFallbackText(day, siteUrl, notice);
 
   const payload = {
     type: "message",
     text,
-    summary: SUMMARY,
+    summary: notice.summary,
     attachments: [
       {
         contentType: "application/vnd.microsoft.card.adaptive",
@@ -85,8 +114,8 @@ export async function notifyTeams(day: DayView, request?: Request): Promise<void
           version: "1.4",
           // Teams 에서 카드를 채널 폭에 맞춰 보여줍니다. (다른 곳에서는 무시됨)
           msteams: { width: "Full" },
-          body: buildCardBody(day, siteUrl),
-          actions: [{ type: "Action.OpenUrl", title: BUTTON_TITLE, url: siteUrl }],
+          body: buildCardBody(day, siteUrl, notice),
+          actions: [{ type: "Action.OpenUrl", title: notice.button, url: siteUrl }],
         },
       },
     ],

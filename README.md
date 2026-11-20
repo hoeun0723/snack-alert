@@ -3,9 +3,10 @@
 회사 탕비실 간식이 **도착했는지 아닌지**를 팀원 모두가 한 화면에서 보고, 도착하는 순간 **브라우저 알림**으로 알려주는 아주 작은 웹사이트입니다.
 
 - 주소 하나만 팀 단톡방에 붙여넣으면 끝 (로그인·비밀번호 없음)
-- 누구나 "🍪 도착했어요 / ⏳ 아직 안 왔어요"를 바꿀 수 있어요
+- 누구나 **⏳ 아직 안 왔어요 / 🍪 도착했어요 / 💨 다 떨어졌어요** 세 가지 상태를 바꿀 수 있어요
 - 간식 종류·한 줄 메모·사진도 함께 남길 수 있어요
-- 매일 **KST 자정**에 새 날짜로 자동 전환되고, 어제 기록은 따로 표시됩니다
+- **😋 맛있어요 / 👍 최고 / 🔥 순삭** 반응을 누구나 누를 수 있고, 최근 간식 히스토리와 **인기 간식(👑)** 이 쌓여요
+- 매일 **KST 자정**에 새 날짜로 자동 전환되고, 지난 기록은 히스토리로 남습니다
 - Vercel 무료 플랜 + Upstash Redis 무료 플랜으로 운영 비용 0원
 
 ---
@@ -62,13 +63,18 @@
 ## (선택) Microsoft Teams 로도 알림 보내기
 
 Vercel 프로젝트 **Settings → Environment Variables** 에 `TEAMS_WEBHOOK_URL` 을 추가하고 Redeploy 하면,
-누군가 “도착했어요”를 등록하는 순간 Teams 채널로도 메시지가 갑니다.
+“도착했어요”를 등록하거나 “도착했어요 → 다 떨어졌어요”로 바뀌는 순간 Teams 채널로도 메시지가 갑니다.
 
 - Teams 채널 → **⋯ → Workflows(워크플로)** → “웹훅 요청이 수신되면 채널에 게시” 템플릿으로 만든 URL을 넣으면 됩니다.
 - 예전 **Incoming Webhook**(Office 365 커넥터) URL도 함께 지원합니다.
 - 환경변수를 비워두면 아무 동작도 하지 않아요.
 
-알림 카드에는 제목(`🍪 오늘 간식 도착했어요!`), 간식 종류·메모·기록 시각, 그리고 **사진을 올린 날에는 간식 사진 미리보기**가 함께 들어갑니다.
+| 순간 | 알림 |
+| --- | --- |
+| 아직 안 왔어요 → **도착했어요** | `🍪 오늘 간식 도착했어요!` |
+| 도착했어요 → **다 떨어졌어요** | `💨 오늘 간식이 다 떨어졌어요!` — **하루 한 번만** (같은 날 다시 품절로 바꿔도 반복 전송 없음) |
+
+알림 카드에는 제목, 간식 종류·메모·기록 시각, 그리고 **사진을 올린 날에는 간식 사진 미리보기**가 함께 들어갑니다.
 카드 아래 **“간식 보드 열기 🍪”** 버튼을 누르면 바로 사이트로 이동합니다. (버튼 주소는 배포된 사이트 주소로 자동 계산)
 
 > 사진은 알림이 나가는 순간(= “도착했어요”를 처음 누르는 순간) 이미 등록돼 있어야 카드에 실립니다.
@@ -107,11 +113,16 @@ npm run build && npm start
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/status` | 오늘 상태 + 어제 기록 + 저장소 모드 |
-| `POST` | `/api/status` | `{ arrived?: boolean, label?: string, memo?: string, reset?: true }` |
+| `GET` | `/api/status` | 오늘 상태(+ 반응 카운터) + 어제 기록 + 저장소 모드 |
+| `POST` | `/api/status` | `{ status?: "waiting" \| "arrived" \| "sold_out", arrived?: boolean, label?: string, memo?: string, reset?: true }` |
+| `GET` | `/api/history` | 최근 30일 중 기록이 있는 날(최신순) + 인기 간식 |
+| `POST` | `/api/reaction` | `{ type: "tasty" \| "best" \| "fire" }` — 오늘 간식에 반응 하나 추가 |
 | `GET` | `/api/photo` | 오늘 간식 사진 (없으면 404) |
 | `POST` | `/api/photo` | `{ dataUrl: "data:image/jpeg;base64,..." }` |
 | `DELETE` | `/api/photo` | 오늘 사진 삭제 |
+
+`arrived` boolean 은 예전 클라이언트 호환용입니다. (`true` = `arrived`, `false` = `waiting`)
+새 코드는 `status` 를 쓰면 되고, 응답에는 항상 `status` 와 `arrived` 가 함께 들어갑니다.
 
 상태 응답 예시:
 
@@ -119,15 +130,29 @@ npm run build && npm start
 {
   "today": {
     "date": "2026-11-20",
-    "arrived": true,
+    "status": "sold_out",
+    "arrived": false,
     "label": "마들렌 · 3층 탕비실",
     "memo": "커피랑 같이 드세요",
     "updatedAt": "2026-11-20T06:24:11.000Z",
     "hasPhoto": true,
     "photoVersion": "2026-11-20T06:25:02.000Z",
-    "revision": 4
+    "revision": 4,
+    "reactions": { "tasty": 3, "best": 1, "fire": 0 },
+    "soldOutNotifiedAt": "2026-11-20T07:02:33.000Z"
   },
   "yesterday": null,
+  "storageMode": "redis",
+  "todayKey": "2026-11-20"
+}
+```
+
+히스토리 응답 예시:
+
+```json
+{
+  "history": [ { "date": "2026-11-20", "status": "sold_out", "reactions": { "tasty": 3, "best": 1, "fire": 0 }, "...": "..." } ],
+  "popular": { "label": "마들렌 · 3층 탕비실", "total": 17, "date": "2026-11-20" },
   "storageMode": "redis",
   "todayKey": "2026-11-20"
 }
@@ -137,26 +162,32 @@ npm run build && npm start
 
 ## 이렇게 동작해요
 
-- **날짜**: 모든 날짜 계산은 `Asia/Seoul` 기준입니다. 저장 키가 `snack:status:2026-11-20` 형태라서 **자정이 지나면 자동으로 새 날짜**로 시작하고, 이전 날짜는 “어제 기록”으로 읽습니다. (보관 14일)
+- **날짜**: 모든 날짜 계산은 `Asia/Seoul` 기준입니다. 저장 키가 `snack:status:2026-11-20` 형태라서 **자정이 지나면 자동으로 새 날짜**로 시작하고, 이전 날짜는 **최근 간식 히스토리**에 남습니다. (보관 30일)
 - **사진**: 고른 사진을 브라우저에서 **긴 변 800px 이하 JPEG(≈200KB)** 로 줄여서 저장합니다. 파일 서버 없이 Redis 문자열로 보관해요.
+- **리액션**: 😋/👍/🔥 를 누를 때마다 오늘 기록의 `reactions` 카운터가 하나씩 올라갑니다. 같은 사람이 여러 번 눌러도 그대로 쌓이고, 기록 시각(마지막 기록)은 바뀌지 않아요.
+- **히스토리**: 최근 30일 중 기록이 있는 날만 최신순으로 보여줍니다. 같은 간식 이름끼리 반응을 모아 1위를 **👑 인기 간식**으로 표시해요. (Redis 에서는 `MGET` 한 번으로 읽습니다)
 - **동시 수정**: 마지막에 저장한 사람의 값이 남는 방식(라스트 라이트 윈)입니다. 팀 규모의 간식 알림에는 충분해요.
-- **알림 중복 방지**: 브라우저는 “아직 안 왔어요 → 도착했어요”로 바뀐 순간에만 알림을 띄웁니다. 새로고침해도 이미 도착한 상태면 알림이 오지 않아요.
+- **알림 중복 방지**: 브라우저는 “아직 안 왔어요 → 도착했어요”로 바뀐 순간에만 알림을 띄웁니다. 새로고침해도 이미 도착한 상태면 알림이 오지 않아요. 품절 Teams 알림도 “도착했어요 → 다 떨어졌어요” 순간에 하루 한 번만 나갑니다.
 - **저장 실패 시**: 상단에 빨간 안내가 뜨고, 다음 폴링에서 자동으로 다시 시도합니다.
 
 ## 폴더 구조
 
 ```
 app/
-  api/status/route.ts   # 오늘/어제 상태 조회·수정
+  api/status/route.ts   # 오늘/어제 상태 조회·수정 (3가지 상태)
+  api/history/route.ts  # 최근 30일 히스토리 + 인기 간식
+  api/reaction/route.ts # 😋 👍 🔥 반응 카운터
   api/photo/route.ts    # 사진 등록·조회·삭제
   page.tsx, layout.tsx, globals.css, icon.svg
 components/
-  SnackBoard.tsx        # 화면 전체 (버튼·폼·사진·알림·폴링)
+  SnackBoard.tsx        # 화면 전체 (3단 상태 버튼·리액션·폼·사진·히스토리·알림·폴링)
+  SnackBuddy.tsx        # 간식 요정 캐릭터 (⏳ 대기 / 🍪 도착 / 💨 품절)
 lib/
-  store.ts              # Upstash Redis REST + 인메모리 fallback
+  store.ts              # Upstash Redis REST + 인메모리 fallback (MGET 히스토리)
+  history.ts            # 히스토리 정리·인기 간식 계산
   kst.ts                # KST 날짜/시간 계산
-  types.ts              # 공용 타입·상수
-  teams.ts              # Teams 웹훅 (선택) · 사진 미리보기·버튼 카드
+  types.ts              # 공용 타입·상수 (상태·반응 메타데이터 포함)
+  teams.ts              # Teams 웹훅 (도착·품절) · 사진 미리보기·버튼 카드
   site.ts               # 배포된 사이트 주소 계산 (링크·미리보기용)
   browser.ts            # 이미지 압축·알림·서비스 워커
 public/

@@ -192,6 +192,13 @@ button:disabled {
   border-color: #e3dff0;
 }
 
+.hero--sold {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.9), transparent 62%),
+    linear-gradient(160deg, #f7f1e8 0%, #e8dccd 100%);
+  border-color: #ded0bd;
+}
+
 /* ── 간식 요정 캐릭터 ─────────────────────────────────── */
 .buddy {
   width: 116px;
@@ -207,6 +214,11 @@ button:disabled {
 
 .buddy--arrived {
   animation-duration: 3.2s;
+}
+
+.buddy--sold {
+  animation-duration: 6.2s;
+  filter: drop-shadow(0 8px 12px rgba(130, 100, 70, 0.14)) saturate(0.94);
 }
 
 .buddy__svg {
@@ -260,6 +272,10 @@ button:disabled {
   color: #5d5776;
 }
 
+.hero--sold .hero__status {
+  color: #6f5a41;
+}
+
 .hero__detail {
   margin: 8px 0 0;
   font-size: 15px;
@@ -269,6 +285,10 @@ button:disabled {
 
 .hero--arrived .hero__detail {
   color: #96602b;
+}
+
+.hero--sold .hero__detail {
+  color: #8a7154;
 }
 
 .hero__memo {
@@ -285,42 +305,56 @@ button:disabled {
 /* ── 도착 여부 전환 ────────────────────────────────────── */
 .switch {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
 
 .switch__button {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 15px 10px;
+  gap: 5px;
+  padding: 12px 6px;
   border-radius: 18px;
   border: 1px solid var(--line);
   background: #fff;
   color: var(--ink-soft);
-  font-size: 14.5px;
+  font-size: 12.8px;
   font-weight: 800;
   letter-spacing: -0.01em;
+  line-height: 1.2;
   transition: transform 0.12s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.switch__button > span[aria-hidden="true"] {
+  font-size: 19px;
+  line-height: 1;
 }
 
 .switch__button:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
-.switch__button.is-active:first-child {
+.switch__button.is-active[data-status="waiting"] {
   background: linear-gradient(160deg, #7b769a, #666182);
   border-color: #615c7d;
   color: #fff;
   box-shadow: 0 14px 24px -16px rgba(90, 85, 120, 0.9);
 }
 
-.switch__button.is-active:last-child {
+.switch__button.is-active[data-status="arrived"] {
   background: linear-gradient(160deg, #f8cd8f, #eba353);
   border-color: #e5a55f;
   color: #4a2a06;
   box-shadow: 0 14px 24px -14px rgba(210, 140, 60, 0.95);
+}
+
+.switch__button.is-active[data-status="sold_out"] {
+  background: linear-gradient(160deg, #cdb79b, #ac9273);
+  border-color: #a08968;
+  color: #2f2316;
+  box-shadow: 0 14px 24px -14px rgba(140, 112, 78, 0.95);
 }
 
 /* ── 메모 입력 ─────────────────────────────────────────── */
@@ -497,6 +531,233 @@ button:disabled {
   background: #fdf2ef;
 }
 
+/* ── 반응 (😋 👍 🔥) ──────────────────────────────── */
+.reactions {
+  display: grid;
+  gap: 8px;
+}
+
+.reactions__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.reactions__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+}
+
+.reactions__total {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.reactions__list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.reaction {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 9px 6px 8px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #fffdf9;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.reaction:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #fff;
+  border-color: #f0d9b8;
+}
+
+.reaction__emoji {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.reaction__label {
+  letter-spacing: -0.01em;
+}
+
+.reaction__count {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.reaction--on {
+  background: #fff4e2;
+  border-color: #f3d3a2;
+  color: var(--brown-deep);
+}
+
+.reaction--on .reaction__count {
+  color: var(--brown-deep);
+}
+
+/* ── 최근 간식 히스토리 ─────────────────────────────── */
+.history {
+  display: grid;
+  gap: 10px;
+}
+
+.history__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.history__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+}
+
+.history__popular {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--brown-deep);
+  background: #fff2dc;
+  border: 1px solid #f4dcb4;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  max-height: 336px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.history__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 16px;
+  background: #fffcf7;
+  border: 1px solid var(--line);
+}
+
+.history__item--arrived {
+  background: #fffaf0;
+  border-color: #f6e4ca;
+}
+
+.history__item--sold_out {
+  background: #fbf7f2;
+  border-color: #ebe0d2;
+}
+
+.history__badge {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.history__main {
+  min-width: 0;
+}
+
+.history__date {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.history__status-text {
+  color: #b6a48c;
+}
+
+.history__label {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history__crown {
+  margin-right: 3px;
+}
+
+.history__memo {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history__reactions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.history__reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--brown-deep);
+  background: #fff2dd;
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.history__none {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.history__empty {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-faint);
+  background: #fdf8f0;
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
 /* ── 하단 ──────────────────────────────────────────────── */
 .board__footer {
   display: grid;
@@ -537,15 +798,6 @@ button:disabled {
   font-size: 12px;
   line-height: 1.6;
   color: var(--ink-faint);
-}
-
-.yesterday {
-  margin: 0;
-  font-size: 12px;
-  color: #9c8a75;
-  background: #fdf6ec;
-  border-radius: 12px;
-  padding: 7px 11px;
 }
 
 .footnotes {
@@ -637,6 +889,15 @@ button:disabled {
   .buddy {
     width: 128px;
     height: 128px;
+  }
+
+  .switch__button {
+    padding: 13px 8px;
+    font-size: 14px;
+  }
+
+  .history__list {
+    max-height: 400px;
   }
 }
 

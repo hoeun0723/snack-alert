@@ -1,4 +1,11 @@
-import { emptyDay, type DayView, type StorageMode } from "@/lib/types";
+import {
+  emptyDay,
+  HISTORY_DAYS,
+  parseReactions,
+  resolveStatus,
+  type DayView,
+  type StorageMode,
+} from "@/lib/types";
 
 /**
  * 저장소 계층.
@@ -11,7 +18,8 @@ import { emptyDay, type DayView, type StorageMode } from "@/lib/types";
  * Redis REST 는 SDK 없이 fetch 만으로 동작합니다. (외부 의존성 0)
  */
 
-const DAY_TTL_SECONDS = 60 * 60 * 24 * 14; // 14일이면 "어제 기록"까지 충분합니다.
+// 히스토리로 보여주는 만큼(30일) 보관합니다.
+const DAY_TTL_SECONDS = 60 * 60 * 24 * HISTORY_DAYS;
 const STATUS_PREFIX = "snack:status:";
 const PHOTO_PREFIX = "snack:photo:";
 
@@ -120,15 +128,20 @@ function parseDay(raw: string, date: string): DayView {
   const fallback = emptyDay(date);
   try {
     const parsed = JSON.parse(raw) as Partial<DayView>;
+    const status = resolveStatus(parsed);
     return {
       date,
-      arrived: parsed.arrived === true,
+      status,
+      arrived: status === "arrived",
       label: typeof parsed.label === "string" ? parsed.label : "",
       memo: typeof parsed.memo === "string" ? parsed.memo : "",
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : null,
       hasPhoto: parsed.hasPhoto === true,
       photoVersion: typeof parsed.photoVersion === "string" ? parsed.photoVersion : null,
       revision: typeof parsed.revision === "number" ? parsed.revision : 0,
+      reactions: parseReactions(parsed.reactions),
+      soldOutNotifiedAt:
+        typeof parsed.soldOutNotifiedAt === "string" ? parsed.soldOutNotifiedAt : null,
     };
   } catch {
     return fallback;
@@ -138,6 +151,32 @@ function parseDay(raw: string, date: string): DayView {
 export async function readDay(date: string): Promise<DayView | null> {
   const raw = await kvGet(statusKey(date));
   return raw ? parseDay(raw, date) : null;
+}
+
+/**
+ * 여러 날짜를 한 번에 읽습니다. (히스토리용)
+ * Redis 에서는 MGET 한 번으로 처리해서 무료 명령 한도를 아낍니다.
+ * 요청한 순서를 그대로 지키고, 없는 날짜는 결과에서 빠집니다.
+ */
+export async function readDays(dates: string[]): Promise<DayView[]> {
+  if (dates.length === 0) return [];
+
+  if (!redisConfig()) {
+    const days: DayView[] = [];
+    for (const date of dates) {
+      const raw = await kvGet(statusKey(date));
+      if (raw) days.push(parseDay(raw, date));
+    }
+    return days;
+  }
+
+  const values = await command<(string | null)[]>(["MGET", ...dates.map(statusKey)]);
+  const days: DayView[] = [];
+  dates.forEach((date, index) => {
+    const raw = values?.[index];
+    if (typeof raw === "string" && raw) days.push(parseDay(raw, date));
+  });
+  return days;
 }
 
 export async function writeDay(day: DayView): Promise<void> {
