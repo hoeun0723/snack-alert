@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import SnackBuddy from "@/components/SnackBuddy";
 import {
   compressImageToDataUrl,
   isIOSDevice,
@@ -397,16 +398,7 @@ export default function SnackBoard() {
         </header>
 
         <div className={arrived ? "hero hero--arrived" : "hero hero--waiting"}>
-          {arrived && (
-            <div className="hero__crumbs" aria-hidden="true">
-              <span>🍪</span>
-              <span>✧</span>
-              <span>🍩</span>
-            </div>
-          )}
-          <p className="hero__emoji" aria-hidden="true">
-            {loading && !today ? "🍪" : arrived ? "🍪" : "⏳"}
-          </p>
+          <SnackBuddy arrived={arrived} />
           <p className="hero__status" aria-live="polite">
             {loading && !today ? "불러오는 중…" : arrived ? "도착했어요!" : "아직 안 왔어요"}
           </p>
