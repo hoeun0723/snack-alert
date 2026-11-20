@@ -68,6 +68,20 @@ Vercel 프로젝트 **Settings → Environment Variables** 에 `TEAMS_WEBHOOK_UR
 - 예전 **Incoming Webhook**(Office 365 커넥터) URL도 함께 지원합니다.
 - 환경변수를 비워두면 아무 동작도 하지 않아요.
 
+알림 카드에는 제목(`🍪 오늘 간식 도착했어요!`), 간식 종류·메모·기록 시각, 그리고 **사진을 올린 날에는 간식 사진 미리보기**가 함께 들어갑니다.
+카드 아래 **“간식 보드 열기 🍪”** 버튼을 누르면 바로 사이트로 이동합니다. (버튼 주소는 배포된 사이트 주소로 자동 계산)
+
+### 새 간식 알림 방(채널)으로 옮기기
+
+채널을 새로 파고 그 채널에서 웹훅을 다시 만들었다면 **코드는 그대로 두고 환경변수만 바꾸면 됩니다.**
+
+1. 새 채널 → **⋯ → Workflows** → “웹훅 요청이 수신되면 채널에 게시” 로 새 웹훅 URL을 만듭니다.
+2. Vercel 프로젝트 → **Settings → Environment Variables** → `TEAMS_WEBHOOK_URL` 값에 새 URL을 붙여넣고 **Save**.
+3. **Deployments** → 최신 배포 → **⋯ → Redeploy** (환경변수는 재배포해야 반영됩니다).
+
+> 사이트 주소는 `NEXT_PUBLIC_SITE_URL` → Vercel 의 `VERCEL_PROJECT_PRODUCTION_URL` → 요청 헤더 순으로 자동 계산되므로, 보통은 따로 넣지 않아도 됩니다.
+> 팀즈·카톡에 링크만 붙여넣어도 제목·설명·미리보기 이미지(`/og-image.png`)가 뜹니다.
+
 ---
 
 ## 로컬에서 실행하기
@@ -138,10 +152,11 @@ lib/
   store.ts              # Upstash Redis REST + 인메모리 fallback
   kst.ts                # KST 날짜/시간 계산
   types.ts              # 공용 타입·상수
-  teams.ts              # Teams 웹훅 (선택)
+  teams.ts              # Teams 웹훅 (선택) · 사진 미리보기·버튼 카드
+  site.ts               # 배포된 사이트 주소 계산 (링크·미리보기용)
   browser.ts            # 이미지 압축·알림·서비스 워커
 public/
-  sw.js, manifest.json, icon-*.png
+  sw.js, manifest.json, icon-*.png, og-image.png   # og-image = 링크 미리보기(1200×630)
 ```
 
 ## 라이선스

@@ -105,8 +105,9 @@ export async function POST(request: Request) {
     await writeDay(next);
 
     // "아직 안 왔어요" → "도착했어요" 로 바뀐 순간에만 Teams 로도 알립니다. (선택)
+    // request 를 넘겨 배포된 사이트 주소(x-forwarded-host 등)를 카드 버튼·미리보기에 씁니다.
     if (!previous.arrived && next.arrived) {
-      await notifyTeams(next);
+      await notifyTeams(next, request);
     }
 
     return NextResponse.json(
