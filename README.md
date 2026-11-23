@@ -62,12 +62,19 @@
 
 ## (선택) Microsoft Teams 로도 알림 보내기
 
-Vercel 프로젝트 **Settings → Environment Variables** 에 `TEAMS_WEBHOOK_URL` 을 추가하고 Redeploy 하면,
-“도착했어요”를 등록하거나 “도착했어요 → 다 떨어졌어요”로 바뀌는 순간 Teams 채널로도 메시지가 갑니다.
+Vercel 프로젝트 **Settings → Environment Variables** 에 아래 값을 추가하고 Redeploy 하면,
+“도착했어요”를 등록하거나 “도착했어요 → 다 떨어졌어요”로 바뀌는 순간 Teams 로도 메시지가 갑니다.
 
-- Teams 채널 → **⋯ → Workflows(워크플로)** → “웹훅 요청이 수신되면 채널에 게시” 템플릿으로 만든 URL을 넣으면 됩니다.
+| 변수명 | 보내는 곳 |
+| --- | --- |
+| `TEAMS_WEBHOOK_URL` | Teams **채널**(팀) |
+| `TEAMS_WEBHOOK_CHAT_URL` | Teams **채팅**(개인·그룹 채팅) |
+
+- **둘 다 넣으면 채널과 채팅에 동시에** 같은 알림이 갑니다. (한쪽이 실패해도 다른 쪽은 그대로 전송)
+- 한 변수에 콤마(`,`)로 여러 주소를 넣어도 되고, 같은 주소가 겹치면 한 번만 보냅니다.
+- Teams 채널(또는 채팅) → **⋯ → Workflows(워크플로)** → “웹훅 요청이 수신되면 채널에 게시” 템플릿으로 만든 URL을 넣으면 됩니다.
 - 예전 **Incoming Webhook**(Office 365 커넥터) URL도 함께 지원합니다.
-- 환경변수를 비워두면 아무 동작도 하지 않아요.
+- 두 변수를 모두 비워두면 아무 동작도 하지 않아요.
 
 | 순간 | 알림 |
 | --- | --- |
@@ -81,12 +88,12 @@ Vercel 프로젝트 **Settings → Environment Variables** 에 `TEAMS_WEBHOOK_UR
 > 사진까지 함께 알림을 받고 싶다면 **사진을 먼저 올리고 “도착했어요”를 누르면** 돼요.
 > (같은 날 메모만 고치거나 사진만 바꿔도 알림이 또 가지 않습니다 — 도배 방지)
 
-### 새 간식 알림 방(채널)으로 옮기기
+### 새 간식 알림 방(채널·채팅)으로 옮기기
 
-채널을 새로 파고 그 채널에서 웹훅을 다시 만들었다면 **코드는 그대로 두고 환경변수만 바꾸면 됩니다.**
+채널(또는 채팅)을 새로 파고 그곳에서 웹훅을 다시 만들었다면 **코드는 그대로 두고 환경변수만 바꾸면 됩니다.**
 
-1. 새 채널 → **⋯ → Workflows** → “웹훅 요청이 수신되면 채널에 게시” 로 새 웹훅 URL을 만듭니다.
-2. Vercel 프로젝트 → **Settings → Environment Variables** → `TEAMS_WEBHOOK_URL` 값에 새 URL을 붙여넣고 **Save**.
+1. 새 채널(또는 채팅) → **⋯ → Workflows** → “웹훅 요청이 수신되면 채널에 게시” 로 새 웹훅 URL을 만듭니다.
+2. Vercel 프로젝트 → **Settings → Environment Variables** → `TEAMS_WEBHOOK_URL`(채널) 또는 `TEAMS_WEBHOOK_CHAT_URL`(채팅) 값에 새 URL을 붙여넣고 **Save**.
 3. **Deployments** → 최신 배포 → **⋯ → Redeploy** (환경변수는 재배포해야 반영됩니다).
 
 > 사이트 주소는 `NEXT_PUBLIC_SITE_URL` → Vercel 의 `VERCEL_PROJECT_PRODUCTION_URL` → 요청 헤더 순으로 자동 계산되므로, 보통은 따로 넣지 않아도 됩니다.
