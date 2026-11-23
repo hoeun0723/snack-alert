@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import ConfirmDialog from "@/components/ConfirmDialog";
 import SnackBuddy from "@/components/SnackBuddy";
 import {
   compressImageToDataUrl,
@@ -43,6 +44,9 @@ interface StatusPayload {
 
 type Notice = { id: number; text: string };
 
+/** Teams 알림이 나가는 상태 변경 — 확인 팝업에서 한 번 더 물어봅니다. */
+type PendingChange = { next: SnackStatus; kind: "arrived" | "sold_out" };
+
 function errorMessage(error: unknown): string {
   if (error instanceof TypeError) {
     return "네트워크가 잠깐 끊겼어요. 자동으로 다시 시도합니다.";
@@ -64,6 +68,8 @@ export default function SnackBoard() {
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
+  const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
+  const [sending, setSending] = useState(false);
   const [reacting, setReacting] = useState<ReactionKey | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
 
@@ -300,6 +306,48 @@ export default function SnackBoard() {
     }
   }
 
+  /**
+   * 이 상태로 바꿀 때 Teams 알림이 실제로 나가는지 봅니다.
+   * (서버의 app/api/status/route.ts 와 같은 규칙)
+   *  - arrived  : "도착했어요"가 아닌 상태에서 arrived 로 바뀌는 순간
+   *  - sold_out : "도착했어요"에서 sold_out 으로 바뀌는 순간 (하루 1회)
+   */
+  function teamsNoticeFor(next: SnackStatus): PendingChange["kind"] | null {
+    if (!today || next === today.status) return null;
+    if (next === "arrived") return "arrived";
+    if (next === "sold_out" && today.status === "arrived" && !today.soldOutNotifiedAt) {
+      return "sold_out";
+    }
+    return null;
+  }
+
+  /** 상태 버튼: Teams 알림이 나가는 경우에만 먼저 확인 팝업을 띄웁니다. */
+  function requestStatus(next: SnackStatus) {
+    if (busy || sending || !today) return;
+    const kind = teamsNoticeFor(next);
+    if (!kind) {
+      void setStatus(next);
+      return;
+    }
+    setPendingChange({ next, kind });
+  }
+
+  const closePending = useCallback(() => {
+    if (sending) return;
+    setPendingChange(null);
+  }, [sending]);
+
+  async function confirmPending() {
+    if (!pendingChange || sending) return;
+    setSending(true);
+    try {
+      await setStatus(pendingChange.next);
+    } finally {
+      setSending(false);
+      setPendingChange(null);
+    }
+  }
+
   async function react(type: ReactionKey) {
     if (reacting || !today) return;
     setReacting(type);
@@ -481,7 +529,7 @@ export default function SnackBoard() {
                 className={active ? "switch__button is-active" : "switch__button"}
                 aria-pressed={active}
                 disabled={busy || !today}
-                onClick={() => void setStatus(value)}
+                onClick={() => requestStatus(value)}
               >
                 <span aria-hidden="true">{item.emoji}</span> {item.label}
               </button>
@@ -717,6 +765,28 @@ export default function SnackBoard() {
           </div>
         </footer>
       </section>
+
+      {pendingChange ? (
+        <ConfirmDialog
+          emoji={pendingChange.kind === "arrived" ? "🍪" : "💨"}
+          tone={pendingChange.kind}
+          title={
+            pendingChange.kind === "arrived" ? "팀에 도착 알림을 보낼까요?" : "팀에 품절 알림을 보낼까요?"
+          }
+          message={
+            pendingChange.kind === "arrived"
+              ? "팀 전체에 간식 도착 알림이 전송됩니다. 정말 등록할까요?"
+              : "팀 전체에 품절 알림이 전송됩니다. 정말 변경할까요?"
+          }
+          detail={labelDraft.trim() ? `오늘 간식: ${labelDraft.trim()}` : null}
+          hint={pendingChange.kind === "sold_out" ? "품절 알림은 하루에 한 번만 전송돼요." : null}
+          confirmLabel={pendingChange.kind === "arrived" ? "알림 보내기" : "변경하기"}
+          busyLabel={pendingChange.kind === "arrived" ? "보내는 중…" : "바꾸는 중…"}
+          busy={sending}
+          onCancel={closePending}
+          onConfirm={() => void confirmPending()}
+        />
+      ) : null}
 
       {notice ? (
         <p className="toast" role="status" key={notice.id}>
