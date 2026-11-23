@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
+import PhotoLightbox from "@/components/PhotoLightbox";
 import SnackBuddy from "@/components/SnackBuddy";
 import {
   compressImageToDataUrl,
@@ -80,6 +81,8 @@ export default function SnackBoard() {
   const [memoDraft, setMemoDraft] = useState("");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  /** 간식 사진을 크게 보는 라이트박스가 열려 있는지 */
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("default");
   const [alertsOn, setAlertsOn] = useState(false);
@@ -148,6 +151,8 @@ export default function SnackBoard() {
           ? `/api/photo?v=${encodeURIComponent(day.photoVersion ?? "now")}`
           : null,
       );
+      // 사진이 지워지면 열려 있던 크게 보기 창도 함께 닫습니다.
+      if (!day.hasPhoto) setLightboxOpen(false);
 
       if (document.activeElement !== labelRef.current) setLabelDraft(day.label);
       if (document.activeElement !== memoRef.current) setMemoDraft(day.memo);
@@ -336,6 +341,8 @@ export default function SnackBoard() {
     if (sending) return;
     setPendingChange(null);
   }, [sending]);
+
+  const closeLightbox = useCallback(() => setLightboxOpen(false), []);
 
   async function confirmPending() {
     if (!pendingChange || sending) return;
@@ -614,8 +621,19 @@ export default function SnackBoard() {
 
           {photoUrl ? (
             <div className="photo__frame">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className="photo__image" src={photoUrl} alt="오늘의 간식 사진" />
+              <button
+                type="button"
+                className="photo__zoom"
+                onClick={() => setLightboxOpen(true)}
+                aria-haspopup="dialog"
+                aria-label="오늘의 간식 사진 크게 보기"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="photo__image" src={photoUrl} alt="오늘의 간식 사진" />
+                <span className="photo__zoom-hint" aria-hidden="true">
+                  <span className="photo__zoom-icon">🔍</span> 눌러서 크게 보기
+                </span>
+              </button>
               <div className="photo__actions">
                 <button
                   type="button"
@@ -765,6 +783,16 @@ export default function SnackBoard() {
           </div>
         </footer>
       </section>
+
+      {lightboxOpen && photoUrl ? (
+        <PhotoLightbox
+          src={photoUrl}
+          alt={today?.label?.trim() ? `오늘의 간식 사진 — ${today.label.trim()}` : "오늘의 간식 사진"}
+          caption={today?.label ?? null}
+          stamp={today?.photoVersion ? kstTimeLabel(today.photoVersion) : null}
+          onClose={closeLightbox}
+        />
+      ) : null}
 
       {pendingChange ? (
         <ConfirmDialog
