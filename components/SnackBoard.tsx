@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
 import CommentBoard from "@/components/CommentBoard";
+import PhotoCarousel from "@/components/PhotoCarousel";
 import PhotoLightbox, { type LightboxPhoto } from "@/components/PhotoLightbox";
 import SnackBuddy from "@/components/SnackBuddy";
 import {
@@ -14,6 +15,7 @@ import {
   registerServiceWorker,
   showSnackNotification,
 } from "@/lib/browser";
+import { faceFor } from "@/lib/faces";
 import { kstDateLabel, kstTimeLabel, relativeTime } from "@/lib/kst";
 import {
   MAX_COMMENTS_PER_DAY,
@@ -77,10 +79,12 @@ function heroClass(status: SnackStatus): string {
 function photoViews(day: DayView | null): LightboxPhoto[] {
   if (!day) return [];
   const label = day.label.trim();
+  const dayLabel = kstDateLabel(day.date);
   return day.photos.map((photo, index) => ({
-    id: photo.id,
-    src: `/api/photo/${encodeURIComponent(photo.id)}?v=${encodeURIComponent(photo.updatedAt)}`,
-    alt: label ? `${label} 사진 ${index + 1}` : `오늘의 간식 사진 ${index + 1}`,
+    id: `${day.date}:${photo.id}`,
+    // 날짜를 함께 넘겨서 히스토리의 과거 사진도 /api/photo 에서 읽을 수 있게 합니다.
+    src: `/api/photo/${encodeURIComponent(photo.id)}?date=${encodeURIComponent(day.date)}&v=${encodeURIComponent(photo.updatedAt)}`,
+    alt: label ? `${label} 사진 ${index + 1}` : `${dayLabel} 간식 사진 ${index + 1}`,
     stamp: kstTimeLabel(photo.updatedAt),
   }));
 }
@@ -124,8 +128,10 @@ export default function SnackBoard() {
   const [memoDraft, setMemoDraft] = useState("");
   /** 사진을 올리는 중이면 진행 문구, 아니면 null */
   const [uploading, setUploading] = useState<string | null>(null);
-  /** 간식 사진을 크게 보는 라이트박스에서 보고 있는 사진 순번 (닫혀 있으면 null) */
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  /** 간식 사진을 크게 보는 라이트박스 (닫혀 있으면 null). 히스토리 날짜도 함께 봅니다. */
+  const [lightbox, setLightbox] = useState<{ date: string; index: number } | null>(null);
+  /** 히스토리에서 펼쳐 둔 날짜 (YYYY-MM-DD → 펼침 여부) */
+  const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
   /** 익명 한 줄 댓글 입력값·저장 상태 */
   const [commentDraft, setCommentDraft] = useState("");
   const [commentBusy, setCommentBusy] = useState(false);
@@ -195,11 +201,11 @@ export default function SnackBoard() {
       setMode(payload.storageMode);
 
       // 사진이 지워지면 열려 있던 크게 보기 창도 함께 닫고, 순번이 넘치면 마지막 장으로 당깁니다.
-      setLightboxIndex((previous) => {
-        if (previous === null) return null;
+      setLightbox((previous) => {
+        if (!previous || previous.date !== day.date) return previous;
         const count = day.photos.length;
         if (count === 0) return null;
-        return Math.min(previous, count - 1);
+        return previous.index >= count ? { ...previous, index: count - 1 } : previous;
       });
 
       if (document.activeElement !== labelRef.current) setLabelDraft(day.label);
@@ -395,7 +401,12 @@ export default function SnackBoard() {
     setPendingChange(null);
   }, [sending]);
 
-  const closeLightbox = useCallback(() => setLightboxIndex(null), []);
+  const closeLightbox = useCallback(() => setLightbox(null), []);
+
+  /** 히스토리 날짜 카드의 사진·댓글을 펼치거나 접습니다. */
+  const toggleDay = useCallback((date: string) => {
+    setOpenDays((previous) => ({ ...previous, [date]: !previous[date] }));
+  }, []);
 
   async function confirmPending() {
     if (!pendingChange || sending) return;
@@ -619,9 +630,20 @@ export default function SnackBoard() {
   const status: SnackStatus = today?.status ?? "waiting";
   const meta = STATUS_META[status];
   const photos = photoViews(today);
+  // 크게 보기 창은 오늘 사진과 히스토리 사진 모두에 씁니다. (오늘은 최신 상태를 먼저 봅니다)
+  const lightboxDay = lightbox
+    ? today && today.date === lightbox.date
+      ? today
+      : (history.find((day) => day.date === lightbox.date) ?? null)
+    : null;
+  const lightboxPhotos = photoViews(lightboxDay);
   const reactionCounts = today?.reactions;
   const myReactionTotal = reactionCounts ? reactionTotal(reactionCounts) : 0;
   const dateLabel = today ? kstDateLabel(today.date) : "";
+  // 히스토리에서 펼친 날이 있으면 목록을 더 넓게 보여 줍니다.
+  const hasOpenHistoryDay = history.some(
+    (day) => openDays[day.date] && (day.photos.length > 0 || day.comments.length > 0),
+  );
   // 왕관은 인기 간식이 나온 날 중 가장 최근 줄에만 붙입니다. (같은 간식이 반복돼도 한 번만)
   const popularTopDate = popular
     ? (history.find((day) => day.label.trim() === popular.label)?.date ?? null)
@@ -777,54 +799,31 @@ export default function SnackBoard() {
 
           {photos.length > 0 ? (
             <div className="photo__frame">
-              <div className={photos.length === 1 ? "photo__grid photo__grid--single" : "photo__grid"}>
-                {photos.map((photo, index) => (
-                  <div key={photo.id} className="photo__tile">
-                    <button
-                      type="button"
-                      className="photo__zoom"
-                      onClick={() => setLightboxIndex(index)}
-                      aria-haspopup="dialog"
-                      aria-label={`${index + 1}번째 간식 사진 크게 보기`}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img className="photo__image" src={photo.src} alt={photo.alt} />
-                      <span className="photo__zoom-hint" aria-hidden="true">
-                        <span className="photo__zoom-icon">🔍</span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="photo__tile-remove"
-                      onClick={() => void removePhoto(photo.id)}
-                      disabled={uploading !== null}
-                      aria-label={`${index + 1}번째 사진 지우기`}
-                      title="이 사진 지우기"
-                    >
-                      <span aria-hidden="true">✕</span>
-                    </button>
-                  </div>
-                ))}
+              <PhotoCarousel
+                photos={photos}
+                onOpen={(index) => today && setLightbox({ date: today.date, index })}
+                onRemove={(id) => void removePhoto(id)}
+                busy={uploading !== null}
+                note="사진을 누르면 크게 볼 수 있어요 · 옆으로 넘겨 보세요"
+              />
 
-                {photos.length < MAX_PHOTOS_PER_DAY ? (
-                  <button
-                    type="button"
-                    className="photo__tile photo__tile--add"
-                    onClick={() => fileRef.current?.click()}
-                    disabled={uploading !== null}
-                    aria-label="사진 추가하기"
-                  >
-                    <span className="photo__tile-add-icon" aria-hidden="true">
-                      ＋
-                    </span>
-                    <small>사진 추가</small>
-                  </button>
-                ) : null}
-              </div>
-
-              <p className="photo__actions-note">
-                사진을 누르면 크게 볼 수 있어요 · 좌우로 넘겨서 볼 수도 있어요
-              </p>
+              {photos.length < MAX_PHOTOS_PER_DAY ? (
+                <button
+                  type="button"
+                  className="photo__add-bar"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={uploading !== null}
+                  aria-label="사진 추가하기"
+                >
+                  <span className="photo__add-bar-icon" aria-hidden="true">
+                    ＋
+                  </span>
+                  사진 추가하기
+                  <small>
+                    {photos.length} / {MAX_PHOTOS_PER_DAY}장
+                  </small>
+                </button>
+              ) : null}
             </div>
           ) : (
             <button
@@ -881,36 +880,61 @@ export default function SnackBoard() {
           </div>
 
           {history.length > 0 ? (
-            <ul className="history__list">
+            <ul className={hasOpenHistoryDay ? "history__list history__list--tall" : "history__list"}>
               {history.map((day) => {
                 const dayMeta = STATUS_META[day.status];
                 const total = reactionTotal(day.reactions);
                 const isToday = day.date === today?.date;
                 const isPopular = popularTopDate !== null && day.date === popularTopDate;
-                return (
-                  <li key={day.date} className={`history__item history__item--${day.status}`}>
+                const dayPhotos = photoViews(day);
+                const photoCount = dayPhotos.length;
+                const commentCount = day.comments.length;
+                // 사진·댓글이 있는 날만 펼쳐 볼 수 있습니다. (히스토리는 읽기 전용)
+                const expandable = photoCount > 0 || commentCount > 0;
+                const open = expandable && Boolean(openDays[day.date]);
+                const panelId = `history-panel-${day.date}`;
+
+                const rowContent = (
+                  <>
                     <span className="history__badge" aria-hidden="true">
                       {dayMeta.emoji}
                     </span>
 
-                    <div className="history__main">
-                      <p className="history__date">
+                    <span className="history__main">
+                      <span className="history__date">
                         {isToday ? "오늘 · " : ""}
                         {kstDateLabel(day.date)}
                         <span className="history__status-text"> · {dayMeta.label}</span>
-                      </p>
-                      <p className="history__label">
+                      </span>
+                      <span className="history__label">
                         {isPopular ? (
                           <span className="history__crown" aria-label="인기 간식">
                             👑
                           </span>
                         ) : null}
                         {day.label || dayMeta.emptyLabel}
-                      </p>
-                      {day.memo ? <p className="history__memo">{day.memo}</p> : null}
-                    </div>
+                      </span>
+                      {day.memo ? <span className="history__memo">{day.memo}</span> : null}
+                      {expandable ? (
+                        <span className="history__chips">
+                          {photoCount > 0 ? (
+                            <span className="history__chip">
+                              <span aria-hidden="true">📷</span> {photoCount}
+                            </span>
+                          ) : null}
+                          {commentCount > 0 ? (
+                            <span className="history__chip">
+                              <span aria-hidden="true">💬</span> {commentCount}
+                            </span>
+                          ) : null}
+                          <span className="history__chip history__chip--more">
+                            {open ? "접기 ▴" : "펼쳐보기 ▾"}
+                          </span>
+                        </span>
+                      ) : null}
+                    </span>
 
-                    <div className="history__reactions">
+                    <span className="history__reactions">
                       {total > 0 ? (
                         REACTIONS.filter((item) => (day.reactions[item.key] ?? 0) > 0).map((item) => (
                           <span key={item.key} className="history__reaction">
@@ -921,7 +945,61 @@ export default function SnackBoard() {
                       ) : (
                         <span className="history__none">반응 없음</span>
                       )}
-                    </div>
+                    </span>
+                  </>
+                );
+
+                return (
+                  <li
+                    key={day.date}
+                    className={`history__item history__item--${day.status}${open ? " is-open" : ""}`}
+                  >
+                    {expandable ? (
+                      <button
+                        type="button"
+                        className="history__row"
+                        onClick={() => toggleDay(day.date)}
+                        aria-expanded={open}
+                        aria-controls={open ? panelId : undefined}
+                      >
+                        {rowContent}
+                      </button>
+                    ) : (
+                      <div className="history__row history__row--static">{rowContent}</div>
+                    )}
+
+                    {open ? (
+                      <div className="history__panel" id={panelId}>
+                        {photoCount > 0 ? (
+                          <PhotoCarousel
+                            compact
+                            photos={dayPhotos}
+                            onOpen={(index) => setLightbox({ date: day.date, index })}
+                          />
+                        ) : null}
+
+                        {commentCount > 0 ? (
+                          <ul className="history__comments">
+                            {day.comments.map((comment) => (
+                              <li key={comment.id} className="history__comment">
+                                <span className="history__comment-face" aria-hidden="true">
+                                  {faceFor(comment.id)}
+                                </span>
+                                <span className="history__comment-text">{comment.text}</span>
+                                <span className="history__comment-time">
+                                  {kstTimeLabel(comment.createdAt)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+
+                        <p className="history__panel-note">
+                          {photoCount > 0 ? "사진을 누르면 크게 볼 수 있어요 · " : ""}
+                          지난 기록은 보기만 됩니다
+                        </p>
+                      </div>
+                    ) : null}
                   </li>
                 );
               })}
@@ -972,12 +1050,17 @@ export default function SnackBoard() {
         </footer>
       </section>
 
-      {lightboxIndex !== null && photos.length > 0 ? (
+      {lightbox && lightboxPhotos.length > 0 ? (
         <PhotoLightbox
-          photos={photos}
-          index={Math.min(lightboxIndex, photos.length - 1)}
-          caption={today?.label ?? null}
-          onIndexChange={setLightboxIndex}
+          photos={lightboxPhotos}
+          index={Math.min(lightbox.index, lightboxPhotos.length - 1)}
+          caption={
+            lightboxDay?.label.trim() ||
+            (lightboxDay ? `${kstDateLabel(lightboxDay.date)} 간식 사진` : null)
+          }
+          onIndexChange={(index) =>
+            setLightbox((previous) => (previous ? { ...previous, index } : previous))
+          }
           onClose={closeLightbox}
         />
       ) : null}

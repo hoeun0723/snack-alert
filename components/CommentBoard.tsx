@@ -2,6 +2,7 @@
 
 import { useId } from "react";
 
+import { faceFor } from "@/lib/faces";
 import { kstTimeLabel } from "@/lib/kst";
 import { MAX_COMMENT_LENGTH, type DayComment } from "@/lib/types";
 
@@ -18,17 +19,6 @@ export interface CommentBoardProps {
   /** 이 브라우저에서 남긴 댓글 id (지우기 버튼을 이 댓글에만 보여 줍니다) */
   myCommentIds: string[];
   onDelete: (id: string) => void;
-}
-
-/** 익명이라도 목록이 밋밋하지 않도록, 댓글 id 로 늘 같은 얼굴을 골라 줍니다. */
-const FACES = ["🍪", "🧸", "🍫", "🥨", "🍩", "🧁", "🥐", "🍬"];
-
-function faceFor(id: string): string {
-  let hash = 0;
-  for (let index = 0; index < id.length; index += 1) {
-    hash = (hash * 31 + id.charCodeAt(index)) % 10_000;
-  }
-  return FACES[hash % FACES.length] ?? FACES[0]!;
 }
 
 /**

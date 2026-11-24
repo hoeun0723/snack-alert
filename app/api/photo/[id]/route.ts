@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { kstDateKey } from "@/lib/kst";
+import { photoCacheHeaders, readDateParam } from "@/lib/photo-date";
 import { deletePhotoById, readDay, readPhotoById, storageMode, writeDay } from "@/lib/store";
 import { emptyDay, type DayView } from "@/lib/types";
 
@@ -13,13 +14,24 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-/** 사진 한 장을 id 로 돌려줍니다. (/api/photo/{id}?v=등록시각) */
+/**
+ * 사진 한 장을 id 로 돌려줍니다. (/api/photo/{id}?v=등록시각)
+ * 히스토리에서 과거 사진을 볼 때는 ?date=YYYY-MM-DD 로 그날 사진을 지정합니다.
+ *  - date 가 없으면 오늘 사진 (예전 화면과 같은 동작)
+ */
 export async function GET(request: Request, context: RouteContext) {
   const { id } = await context.params;
-  const todayKey = kstDateKey();
+  const target = readDateParam(request);
+
+  if (target.invalid) {
+    return NextResponse.json(
+      { error: "날짜 형식이 올바르지 않아요. (YYYY-MM-DD)" },
+      { status: 400, headers: NO_STORE },
+    );
+  }
 
   try {
-    const photo = await readPhotoById(todayKey, id);
+    const photo = await readPhotoById(target.date, id);
     if (!photo) {
       return new NextResponse(null, { status: 404, headers: NO_STORE });
     }
@@ -32,8 +44,7 @@ export async function GET(request: Request, context: RouteContext) {
       headers: {
         "Content-Type": photo.type,
         "Content-Length": String(bytes.byteLength),
-        // ?v=버전이 붙은 요청만 오래 캐시합니다. (사진이 바뀌면 주소도 바뀜)
-        "Cache-Control": hasVersion ? "public, max-age=31536000, immutable" : "no-store, max-age=0",
+        ...photoCacheHeaders(hasVersion),
       },
     });
   } catch (error) {
@@ -45,7 +56,10 @@ export async function GET(request: Request, context: RouteContext) {
   }
 }
 
-/** 사진 한 장을 지웁니다. 남은 사진 목록을 함께 돌려줍니다. */
+/**
+ * 사진 한 장을 지웁니다. 남은 사진 목록을 함께 돌려줍니다.
+ * 지우기는 오늘 사진만 됩니다. (히스토리는 읽기 전용)
+ */
 export async function DELETE(_request: Request, context: RouteContext) {
   const { id } = await context.params;
   const todayKey = kstDateKey();

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { kstDateKey } from "@/lib/kst";
+import { photoCacheHeaders, readDateParam } from "@/lib/photo-date";
 import {
   deleteAllPhotos,
   LEGACY_PHOTO_ID,
@@ -49,18 +50,28 @@ function readIncomingDataUrls(body: {
   return [];
 }
 
-/** 오늘의 대표 사진(마지막에 올린 사진)을 그대로 돌려줍니다. (링크 미리보기·예전 화면 호환) */
+/**
+ * 그날의 대표 사진(마지막에 올린 사진)을 그대로 돌려줍니다. (링크 미리보기·예전 화면 호환)
+ * ?date=YYYY-MM-DD 로 과거 날짜의 대표 사진도 읽을 수 있습니다.
+ */
 export async function GET(request: Request) {
-  const todayKey = kstDateKey();
+  const target = readDateParam(request);
+
+  if (target.invalid) {
+    return NextResponse.json(
+      { error: "날짜 형식이 올바르지 않아요. (YYYY-MM-DD)" },
+      { status: 400, headers: NO_STORE },
+    );
+  }
 
   try {
-    const day = await readDay(todayKey);
+    const day = await readDay(target.date);
     const latest = day?.photos[day.photos.length - 1];
 
     // 사진 목록이 없는 예전 데이터는 단일 사진 키(legacy)에서 읽습니다.
     const photo = latest
-      ? await readPhotoById(todayKey, latest.id)
-      : await readPhotoById(todayKey, LEGACY_PHOTO_ID);
+      ? await readPhotoById(target.date, latest.id)
+      : await readPhotoById(target.date, LEGACY_PHOTO_ID);
 
     if (!photo) {
       return new NextResponse(null, { status: 404, headers: NO_STORE });
@@ -74,8 +85,7 @@ export async function GET(request: Request) {
       headers: {
         "Content-Type": photo.type,
         "Content-Length": String(bytes.byteLength),
-        // ?v=버전이 붙은 요청만 오래 캐시합니다. (사진이 바뀌면 주소도 바뀜)
-        "Cache-Control": hasVersion ? "public, max-age=31536000, immutable" : "no-store, max-age=0",
+        ...photoCacheHeaders(hasVersion),
       },
     });
   } catch (error) {

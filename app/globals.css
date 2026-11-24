@@ -719,15 +719,51 @@ button:disabled {
   overscroll-behavior: contain;
 }
 
+/* 날짜를 펼쳤을 때는 사진·댓글이 잘리지 않게 목록을 더 넓게 */
+.history__list--tall {
+  max-height: 70vh;
+}
+
 .history__item {
+  border-radius: 16px;
+  background: #fffcf7;
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+/* 날짜 카드의 첫 줄 — 사진·댓글이 있으면 통째로 누를 수 있는 버튼입니다. */
+.history__row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 9px 12px;
-  border-radius: 16px;
-  background: #fffcf7;
-  border: 1px solid var(--line);
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  border-radius: 15px;
+  transition: background 0.15s ease;
+}
+
+button.history__row:hover {
+  background: #fff8ec;
+}
+
+button.history__row:focus-visible {
+  outline: 3px solid rgba(248, 205, 143, 0.8);
+  outline-offset: -3px;
+}
+
+.history__row--static {
+  cursor: default;
+}
+
+.history__item.is-open {
+  border-color: #f2d9b6;
+  background: #fffaf1;
 }
 
 .history__item--arrived {
@@ -746,10 +782,12 @@ button:disabled {
 }
 
 .history__main {
+  display: block;
   min-width: 0;
 }
 
 .history__date {
+  display: block;
   margin: 0;
   font-size: 11.5px;
   color: var(--ink-faint);
@@ -760,6 +798,7 @@ button:disabled {
 }
 
 .history__label {
+  display: block;
   margin: 2px 0 0;
   font-size: 13.5px;
   font-weight: 800;
@@ -774,12 +813,100 @@ button:disabled {
 }
 
 .history__memo {
+  display: block;
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--ink-soft);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 📷 3 · 💬 2 처럼 그날 사진·댓글 수를 보여 주는 칩 */
+.history__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.history__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #fff2dd;
+  color: var(--brown-deep);
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.history__chip--more {
+  background: #fbf3e7;
+  color: var(--ink-faint);
+  font-weight: 700;
+}
+
+.history__item.is-open .history__chip--more {
+  background: #f5e7d3;
+  color: var(--brown-deep);
+}
+
+/* 펼쳤을 때의 사진 캐러셀 + 익명 댓글 (읽기 전용) */
+.history__panel {
+  display: grid;
+  gap: 8px;
+  margin: 0 10px 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.history__comments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.history__comment {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: 12px;
+  background: #fffaf2;
+  border: 1px solid #f6ead8;
+}
+
+.history__comment-face {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.history__comment-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.history__comment-time {
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.history__panel-note {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  text-align: right;
 }
 
 .history__reactions {
@@ -815,6 +942,249 @@ button:disabled {
   background: #fdf8f0;
   border-radius: 14px;
   padding: 12px 14px;
+}
+
+/* ── 사진 캐러셀 ──────────────────────────────────────── */
+.carousel {
+  display: grid;
+  gap: 8px;
+}
+
+.carousel__stage {
+  position: relative;
+}
+
+/* 한 화면에 사진 한 장 · 가로 스크롤 스냅으로 옆으로 넘깁니다. */
+.carousel__viewport {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  border-radius: 18px;
+}
+
+.carousel__viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.carousel__slide {
+  position: relative;
+  flex: 0 0 100%;
+  min-width: 0;
+  scroll-snap-align: center;
+}
+
+.carousel__zoom {
+  display: block;
+  position: relative;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #f6ece0;
+  line-height: 0;
+}
+
+.carousel__image {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 440px;
+  object-fit: contain;
+  border-radius: 18px;
+  background: #f8efe3;
+}
+
+.carousel--compact .carousel__image {
+  aspect-ratio: 16 / 10;
+  max-height: none;
+  border-radius: 14px;
+}
+
+.carousel--compact .carousel__zoom,
+.carousel--compact .carousel__viewport {
+  border-radius: 14px;
+}
+
+.carousel__zoom-hint {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(61, 45, 30, 0.58);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #fff7ec;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.carousel__remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 247, 236, 0.28);
+  background: rgba(61, 45, 30, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #fff7ec;
+  font-size: 11px;
+  line-height: 1;
+  box-shadow: 0 8px 16px -10px rgba(15, 9, 3, 0.9);
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+
+.carousel__remove:hover:not(:disabled) {
+  background: #b8594a;
+  transform: scale(1.06);
+}
+
+.carousel__remove:focus-visible {
+  outline: 3px solid rgba(248, 205, 143, 0.75);
+  outline-offset: 2px;
+}
+
+/* 좌우 넘김 버튼 — 사진 위에 살짝 더러운 원형 버튼 */
+.carousel__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 247, 236, 0.42);
+  background: rgba(61, 45, 30, 0.52);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #fff7ec;
+  font-size: 20px;
+  line-height: 1;
+  box-shadow: 0 10px 20px -14px rgba(15, 9, 3, 0.9);
+  transition: background 0.2s ease, transform 0.15s ease;
+  z-index: 2;
+}
+
+.carousel__nav--prev {
+  left: 8px;
+}
+
+.carousel__nav--next {
+  right: 8px;
+}
+
+.carousel__nav:hover:not(:disabled) {
+  background: rgba(61, 45, 30, 0.72);
+}
+
+.carousel__nav:focus-visible {
+  outline: 3px solid rgba(248, 205, 143, 0.8);
+  outline-offset: 2px;
+}
+
+.carousel--compact .carousel__nav {
+  width: 28px;
+  height: 28px;
+  font-size: 17px;
+}
+
+.carousel__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.carousel__dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.carousel__dot {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #e4d5c1;
+  transition: width 0.2s ease, background 0.2s ease;
+}
+
+.carousel__dot.is-active {
+  width: 18px;
+  background: var(--brown);
+}
+
+.carousel__dot:focus-visible {
+  outline: 2px solid rgba(208, 143, 75, 0.7);
+  outline-offset: 2px;
+}
+
+.carousel__counter {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.carousel__note {
+  margin: 0;
+  padding: 0 2px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  text-align: right;
+}
+
+/* 사진 아래 납짝한 "사진 추가하기" 막대 */
+.photo__add-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 0;
+  border-radius: 14px;
+  border: 1.5px dashed #ebd8bd;
+  background: #fffcf6;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-weight: 700;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.photo__add-bar:hover:not(:disabled) {
+  border-color: #e3bd8c;
+  background: #fff8ec;
+}
+
+.photo__add-bar small {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-faint);
+}
+
+.photo__add-bar-icon {
+  font-size: 14px;
+  line-height: 1;
 }
 
 /* ── 하단 ──────────────────────────────────────────────── */

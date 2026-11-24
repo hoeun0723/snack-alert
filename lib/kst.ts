@@ -25,6 +25,22 @@ export function shiftDateKey(dateKey: string, days: number): string {
   return shifted.toISOString().slice(0, 10);
 }
 
+/**
+ * YYYY-MM-DD 형태의 날짜 키인지 확인합니다.
+ * (2026-13-45 처럼 형식만 맞고 없는 날짜는 걸러냅니다)
+ */
+export function isDateKey(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+  if (!year || !month || !day) return false;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
 /** 날짜 키를 "11월 20일 금요일" 형태로 */
 export function kstDateLabel(dateKey: string): string {
   const date = new Date(`${dateKey}T00:00:00+09:00`);
