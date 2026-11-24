@@ -4,6 +4,9 @@
 
 const MAX_SIDE = 800;
 const TARGET_BYTES = 260_000;
+/** 사진 여러 장을 한 번에 올릴 때 — 조금 더 줄여서 다섯 장을 올려도 가볍게 (약 180KB × 5) */
+const MULTI_MAX_SIDE = 900;
+const MULTI_TARGET_BYTES = 180_000;
 
 function loadWithImageElement(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -44,12 +47,20 @@ async function loadSource(file: File): Promise<{ width: number; height: number; 
 }
 
 /**
- * 사진을 긴 변 800px 이하 JPEG 로 줄여 data URL 로 돌려줍니다.
+ * 사진을 긴 변 maxSide 이하 JPEG 로 줄여 data URL 로 돌려줍니다.
  * (서버에 파일 저장소 없이 Redis 문자열로 보관하기 위함)
+ *
+ * options 를 주면 크기·용량 목표를 바꿀 수 있습니다. (여러 장 올릴 때 사용)
  */
-export async function compressImageToDataUrl(file: File): Promise<string> {
+export async function compressImageToDataUrl(
+  file: File,
+  options: { maxSide?: number; targetBytes?: number; quality?: number } = {},
+): Promise<string> {
+  const maxSide = options.maxSide ?? MAX_SIDE;
+  const targetBytes = options.targetBytes ?? TARGET_BYTES;
+
   const source = await loadSource(file);
-  const scale = Math.min(1, MAX_SIDE / Math.max(source.width, source.height));
+  const scale = Math.min(1, maxSide / Math.max(source.width, source.height));
   const width = Math.max(1, Math.round(source.width * scale));
   const height = Math.max(1, Math.round(source.height * scale));
 
@@ -64,15 +75,32 @@ export async function compressImageToDataUrl(file: File): Promise<string> {
   context.fillRect(0, 0, width, height);
   source.draw(context, width, height);
 
-  let quality = 0.78;
+  let quality = options.quality ?? 0.78;
   let dataUrl = canvas.toDataURL("image/jpeg", quality);
 
-  while (dataUrl.length > TARGET_BYTES && quality > 0.4) {
+  while (dataUrl.length > targetBytes && quality > 0.4) {
     quality = Math.round((quality - 0.08) * 100) / 100;
     dataUrl = canvas.toDataURL("image/jpeg", quality);
   }
 
   return dataUrl;
+}
+
+/**
+ * 사진 여러 장을 한 장씩 차례로 줄여 data URL 배열로 돌려줍니다.
+ * (동시에 줄이면 모바일에서 메모리가 버티지 못해서 순서대로 처리합니다)
+ */
+export async function compressImagesToDataUrls(
+  files: File[],
+  options: { maxSide?: number; targetBytes?: number } = {},
+): Promise<string[]> {
+  const maxSide = options.maxSide ?? MULTI_MAX_SIDE;
+  const targetBytes = options.targetBytes ?? MULTI_TARGET_BYTES;
+  const results: string[] = [];
+  for (const file of files) {
+    results.push(await compressImageToDataUrl(file, { maxSide, targetBytes }));
+  }
+  return results;
 }
 
 export function notificationsSupported(): boolean {

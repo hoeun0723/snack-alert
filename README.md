@@ -4,7 +4,8 @@
 
 - 주소 하나만 팀 단톡방에 붙여넣으면 끝 (로그인·비밀번호 없음)
 - 누구나 **⏳ 아직 안 왔어요 / 🍪 도착했어요 / 💨 다 떨어졌어요** 세 가지 상태를 바꿀 수 있어요
-- 간식 종류·한 줄 메모·사진도 함께 남길 수 있어요
+- 간식 종류·한 줄 메모·사진도 함께 남길 수 있어요 (**사진은 하루 5장까지**, 눌러서 크게 보고 좌우로 넘겨 볼 수 있어요)
+- **💬 오늘의 한 줄** — 이름 없이 남기는 익명 댓글을 팀원끼리 주고받아요 (Teams 알림은 가지 않아요)
 - **😋 맛있어요 / 👍 최고 / 🔥 순삭** 반응을 누구나 누를 수 있고, 최근 간식 히스토리와 **인기 간식(👑)** 이 쌓여요
 - 팀 전체 알림(도착·품절)이 나가는 버튼은 **한 번 더 확인**한 뒤에 전송해요 (실수로 눌러도 팀원에게 알림이 가지 않아요)
 - 매일 **KST 자정**에 새 날짜로 자동 전환되고, 지난 기록은 히스토리로 남습니다
@@ -139,9 +140,16 @@ npm run build && npm start
 | `POST` | `/api/status` | `{ status?: "waiting" \| "arrived" \| "sold_out", arrived?: boolean, label?: string, memo?: string, reset?: true }` |
 | `GET` | `/api/history` | 최근 30일 중 기록이 있는 날(최신순) + 인기 간식 |
 | `POST` | `/api/reaction` | `{ type: "tasty" \| "best" \| "fire" }` — 오늘 간식에 반응 하나 추가 |
-| `GET` | `/api/photo` | 오늘 간식 사진 (없으면 404) |
-| `POST` | `/api/photo` | `{ dataUrl: "data:image/jpeg;base64,..." }` |
-| `DELETE` | `/api/photo` | 오늘 사진 삭제 |
+| `GET` | `/api/photo` | 오늘의 대표 사진(마지막에 올린 사진) 본문 (없으면 404) |
+| `POST` | `/api/photo` | `{ dataUrls: ["data:image/jpeg;base64,...", ...] }` 또는 예전 그대로 `{ dataUrl }` — 최대 5장까지 **덧붙임** |
+| `DELETE` | `/api/photo` | 오늘 사진 **모두** 삭제 |
+| `GET` | `/api/photo/{id}` | 오늘 올린 사진 한 장 (`?v=등록시각` 으로 캐시 무효화) |
+| `DELETE` | `/api/photo/{id}` | 사진 한 장만 삭제 |
+| `GET` | `/api/comments` | 오늘의 익명 한 줄 댓글 목록 |
+| `POST` | `/api/comments` | `{ text }` — 한 줄 댓글 남기기 (최대 200자, 하루 50개) |
+| `DELETE` | `/api/comments` | `{ id }` 또는 `?id=` — 댓글 하나 지우기 |
+
+> 댓글을 남기거나 지워도 **Teams 웹훅은 절대 나가지 않습니다.** (도착·품절 상태 변경 때만 전송)
 
 `arrived` boolean 은 예전 클라이언트 호환용입니다. (`true` = `arrived`, `false` = `waiting`)
 새 코드는 `status` 를 쓰면 되고, 응답에는 항상 `status` 와 `arrived` 가 함께 들어갑니다.
@@ -159,6 +167,13 @@ npm run build && npm start
     "updatedAt": "2026-11-20T06:24:11.000Z",
     "hasPhoto": true,
     "photoVersion": "2026-11-20T06:25:02.000Z",
+    "photos": [
+      { "id": "a1b2c3d4e5f6", "updatedAt": "2026-11-20T06:25:02.000Z" },
+      { "id": "f6e5d4c3b2a1", "updatedAt": "2026-11-20T06:31:40.000Z" }
+    ],
+    "comments": [
+      { "id": "9f8e7d6c5b4a", "text": "마들렌 진짜 맛있어요 🍪", "createdAt": "2026-11-20T06:33:10.000Z" }
+    ],
     "revision": 4,
     "reactions": { "tasty": 3, "best": 1, "fire": 0 },
     "soldOutNotifiedAt": "2026-11-20T07:02:33.000Z"
@@ -185,7 +200,8 @@ npm run build && npm start
 ## 이렇게 동작해요
 
 - **날짜**: 모든 날짜 계산은 `Asia/Seoul` 기준입니다. 저장 키가 `snack:status:2026-11-20` 형태라서 **자정이 지나면 자동으로 새 날짜**로 시작하고, 이전 날짜는 **최근 간식 히스토리**에 남습니다. (보관 30일)
-- **사진**: 고른 사진을 브라우저에서 **긴 변 800px 이하 JPEG(≈200KB)** 로 줄여서 저장합니다. 파일 서버 없이 Redis 문자열로 보관해요.
+- **사진**: 고른 사진을 브라우저에서 **긴 변 900px 이하 JPEG(≈130KB)** 로 줄여서 저장합니다. 여러 장을 올려도 요청·저장 용량이 가볍게 유지돼요. 파일 서버 없이 Redis 문자열로 보관하고, 사진 한 장은 `/api/photo/{id}` 로 따로 받아옵니다. (하루 5장)
+- **한 줄 댓글**: 그날 기록(`snack:status:{날짜}`)의 `comments` 에 함께 쌓입니다. 그래서 **자정이 지나면 새 날은 빈 목록**으로 시작하고, 예전 날짜 기록처럼 `comments` 가 없는 데이터는 빈 목록(`comments ?? []`)으로 읽습니다. 작성 시각은 KST `오후 3:24` 형태로 보여 줘요. (최대 200자 · 하루 50개)
 - **리액션**: 😋/👍/🔥 를 누를 때마다 오늘 기록의 `reactions` 카운터가 하나씩 올라갑니다. 같은 사람이 여러 번 눌러도 그대로 쌓이고, 기록 시각(마지막 기록)은 바뀌지 않아요.
 - **히스토리**: 최근 30일 중 기록이 있는 날만 최신순으로 보여줍니다. 같은 간식 이름끼리 반응을 모아 1위를 **👑 인기 간식**으로 표시해요. (Redis 에서는 `MGET` 한 번으로 읽습니다)
 - **동시 수정**: 마지막에 저장한 사람의 값이 남는 방식(라스트 라이트 윈)입니다. 팀 규모의 간식 알림에는 충분해요.
@@ -200,10 +216,14 @@ app/
   api/status/route.ts   # 오늘/어제 상태 조회·수정 (3가지 상태)
   api/history/route.ts  # 최근 30일 히스토리 + 인기 간식
   api/reaction/route.ts # 😋 👍 🔥 반응 카운터
-  api/photo/route.ts    # 사진 등록·조회·삭제
+  api/photo/route.ts    # 사진 등록(최대 5장)·대표 사진 조회·전체 삭제
+  api/photo/[id]/route.ts # 사진 한 장 조회·삭제
+  api/comments/route.ts # 익명 한 줄 댓글 (Teams 알림 없음)
   page.tsx, layout.tsx, globals.css, icon.svg
 components/
-  SnackBoard.tsx        # 화면 전체 (3단 상태 버튼·리액션·폼·사진·히스토리·알림·폴링)
+  SnackBoard.tsx        # 화면 전체 (3단 상태 버튼·리액션·폼·사진·댓글·히스토리·알림·폴링)
+  CommentBoard.tsx      # 오늘의 한 줄 (익명 댓글 입력·목록)
+  PhotoLightbox.tsx     # 사진 크게 보기 (여러 장 좌우 넘기기·스와이프)
   ConfirmDialog.tsx     # Teams 알림 전 확인 팝업 (취소·ESC·배경 클릭으로 닫힘)
   SnackBuddy.tsx        # 간식 요정 캐릭터 (⏳ 대기 / 🍪 도착 / 💨 품절)
 lib/

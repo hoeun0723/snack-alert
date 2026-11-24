@@ -8,8 +8,16 @@ export type StorageMode = "redis" | "memory";
 export const EMPTY_LABEL_MESSAGE = "도착하면 알려드릴게요";
 export const MAX_LABEL_LENGTH = 60;
 export const MAX_MEMO_LENGTH = 200;
-/** data URL 문자열 기준 상한 (약 300KB 이미지) */
+/** 익명 한 줄 댓글 최대 글자 수 */
+export const MAX_COMMENT_LENGTH = 200;
+/** 하루에 남길 수 있는 댓글 수 (저장 용량·도배 방지) */
+export const MAX_COMMENTS_PER_DAY = 50;
+/** 하루에 올릴 수 있는 사진 수 */
+export const MAX_PHOTOS_PER_DAY = 5;
+/** 사진 한 장의 data URL 문자열 기준 상한 (약 300KB 이미지) */
 export const MAX_PHOTO_DATA_URL_LENGTH = 400_000;
+/** 사진 여러 장을 한 번에 올릴 때 요청 본문 상한 (Vercel 함수 본문 4.5MB 안쪽) */
+export const MAX_PHOTO_BATCH_DATA_URL_LENGTH = 2_200_000;
 /** 히스토리로 보여줄 최근 일수 (저장 기간도 같습니다) */
 export const HISTORY_DAYS = 30;
 
@@ -112,6 +120,59 @@ export function reactionTotal(reactions: Reactions): number {
   return REACTION_KEYS.reduce((sum, key) => sum + (reactions[key] ?? 0), 0);
 }
 
+/** 오늘 남긴 익명 한 줄 댓글 */
+export interface DayComment {
+  /** 댓글 id (삭제할 때 씁니다) */
+  id: string;
+  /** 댓글 내용 (익명 · 최대 MAX_COMMENT_LENGTH 자) */
+  text: string;
+  /** 작성 시각 (ISO) */
+  createdAt: string;
+}
+
+/** 하루에 올린 사진 한 장의 정보 (사진 본문은 담지 않습니다) */
+export interface DayPhotoMeta {
+  /** 사진 id — /api/photo/{id} 로 받아옵니다 */
+  id: string;
+  /** 사진을 올린 시각 (ISO). 주소에 붙여 캐시를 무효화합니다 */
+  updatedAt: string;
+}
+
+/** 저장된 댓글 값을 안전하게 정리합니다. (형식이 깨진 값은 버립니다) */
+export function parseComments(value: unknown): DayComment[] {
+  if (!Array.isArray(value)) return [];
+  const comments: DayComment[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Record<string, unknown>;
+    const text = typeof raw.text === "string" ? raw.text.trim() : "";
+    if (!text) continue;
+    const id = typeof raw.id === "string" && raw.id ? raw.id : `${comments.length}`;
+    const createdAt = typeof raw.createdAt === "string" ? raw.createdAt : new Date(0).toISOString();
+    comments.push({ id, text: text.slice(0, MAX_COMMENT_LENGTH), createdAt });
+    if (comments.length >= MAX_COMMENTS_PER_DAY) break;
+  }
+  return comments;
+}
+
+/** 저장된 사진 목록 값을 안전하게 정리합니다. */
+export function parsePhotos(value: unknown): DayPhotoMeta[] {
+  if (!Array.isArray(value)) return [];
+  const photos: DayPhotoMeta[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Record<string, unknown>;
+    const id = typeof raw.id === "string" ? raw.id.trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const updatedAt = typeof raw.updatedAt === "string" ? raw.updatedAt : new Date(0).toISOString();
+    photos.push({ id, updatedAt });
+    if (photos.length >= MAX_PHOTOS_PER_DAY) break;
+  }
+  return photos;
+}
+
 /** 하루치 간식 상태 (사진 본문은 담지 않습니다) */
 export interface DayView {
   /** KST 기준 날짜 키 (YYYY-MM-DD) */
@@ -126,10 +187,14 @@ export interface DayView {
   memo: string;
   /** 마지막으로 누군가 상태를 바꾼 시각 (ISO). 아무도 건드리지 않았으면 null */
   updatedAt: string | null;
-  /** 오늘 사진이 등록되어 있는지 */
+  /** 오늘 사진이 등록되어 있는지 (photos 가 한 장이라도 있으면 true) */
   hasPhoto: boolean;
-  /** 사진 버전(등록 시각). 이미지 캐시 무효화용 */
+  /** 사진 버전(마지막 사진 등록 시각). 이미지 캐시 무효화용 · 예전 단일 사진 호환 */
   photoVersion: string | null;
+  /** 오늘 올린 사진 목록 (올린 순서). 본문은 /api/photo/{id} 로 받아옵니다 */
+  photos: DayPhotoMeta[];
+  /** 오늘 남긴 익명 한 줄 댓글 (작성 순서) */
+  comments: DayComment[];
   /** 상태를 바꾼 횟수. 폴링에서 변경 감지에 사용 */
   revision: number;
   /** 팀원 반응 카운터 */
@@ -189,6 +254,8 @@ export function emptyDay(date: string): DayView {
     updatedAt: null,
     hasPhoto: false,
     photoVersion: null,
+    photos: [],
+    comments: [],
     revision: 0,
     reactions: emptyReactions(),
     soldOutNotifiedAt: null,

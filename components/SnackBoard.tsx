@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
-import PhotoLightbox from "@/components/PhotoLightbox";
+import CommentBoard from "@/components/CommentBoard";
+import PhotoLightbox, { type LightboxPhoto } from "@/components/PhotoLightbox";
 import SnackBuddy from "@/components/SnackBuddy";
 import {
   compressImageToDataUrl,
@@ -15,12 +16,15 @@ import {
 } from "@/lib/browser";
 import { kstDateLabel, kstTimeLabel, relativeTime } from "@/lib/kst";
 import {
+  MAX_COMMENTS_PER_DAY,
   MAX_LABEL_LENGTH,
   MAX_MEMO_LENGTH,
+  MAX_PHOTOS_PER_DAY,
   REACTIONS,
   reactionTotal,
   SNACK_STATUSES,
   STATUS_META,
+  type DayComment,
   type DayView,
   type HistoryResponse,
   type PopularSnack,
@@ -34,6 +38,11 @@ import {
 const POLL_VISIBLE_MS = 15_000;
 const POLL_HIDDEN_MS = 60_000;
 const ALERTS_KEY = "snack-alert:alerts";
+/** 이 브라우저에서 남긴 댓글 id (날짜별). 내 댓글에만 지우기 버튼을 보여 주려고 씁니다. */
+const MY_COMMENTS_KEY = "snack-alert:my-comments";
+/** 사진 여러 장을 올릴 때 장당 목표 용량 (data URL 글자 수 기준, 약 130KB) */
+const PHOTO_MAX_SIDE = 900;
+const PHOTO_TARGET_BYTES = 180_000;
 
 interface StatusPayload {
   today: DayView;
@@ -41,6 +50,10 @@ interface StatusPayload {
   storageMode: StorageMode;
   todayKey?: string;
   error?: string;
+  /** 사진을 너무 많이 올려 일부를 건너뛰었을 때 */
+  warning?: string;
+  /** 방금 남긴 댓글 */
+  comment?: DayComment;
 }
 
 type Notice = { id: number; text: string };
@@ -58,6 +71,36 @@ function errorMessage(error: unknown): string {
 /** 상태별 큰 카드 색상 클래스 (sold_out 은 hero--sold) */
 function heroClass(status: SnackStatus): string {
   return status === "sold_out" ? "hero hero--sold" : `hero hero--${status}`;
+}
+
+/** 날짜 기록의 사진 목록을 라이트박스·썸네일에서 쓰는 모양으로 바꿉니다. */
+function photoViews(day: DayView | null): LightboxPhoto[] {
+  if (!day) return [];
+  const label = day.label.trim();
+  return day.photos.map((photo, index) => ({
+    id: photo.id,
+    src: `/api/photo/${encodeURIComponent(photo.id)}?v=${encodeURIComponent(photo.updatedAt)}`,
+    alt: label ? `${label} 사진 ${index + 1}` : `오늘의 간식 사진 ${index + 1}`,
+    stamp: kstTimeLabel(photo.updatedAt),
+  }));
+}
+
+/** localStorage 에 날짜별로 남겨 둔 "내 댓글 id"를 읽습니다. */
+function loadMyComments(): Record<string, string[]> {
+  try {
+    const raw = window.localStorage.getItem(MY_COMMENTS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const result: Record<string, string[]> = {};
+    for (const [date, ids] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!Array.isArray(ids)) continue;
+      result[date] = ids.filter((id): id is string => typeof id === "string").slice(-MAX_COMMENTS_PER_DAY);
+    }
+    return result;
+  } catch {
+    return {};
+  }
 }
 
 export default function SnackBoard() {
@@ -79,10 +122,15 @@ export default function SnackBoard() {
 
   const [labelDraft, setLabelDraft] = useState("");
   const [memoDraft, setMemoDraft] = useState("");
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  /** 간식 사진을 크게 보는 라이트박스가 열려 있는지 */
-  const [lightboxOpen, setLightboxOpen] = useState(false);
+  /** 사진을 올리는 중이면 진행 문구, 아니면 null */
+  const [uploading, setUploading] = useState<string | null>(null);
+  /** 간식 사진을 크게 보는 라이트박스에서 보고 있는 사진 순번 (닫혀 있으면 null) */
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  /** 익명 한 줄 댓글 입력값·저장 상태 */
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentBusy, setCommentBusy] = useState(false);
+  /** 날짜별로 이 브라우저에서 남긴 댓글 id (내 댓글에만 지우기 버튼) */
+  const [myComments, setMyComments] = useState<Record<string, string[]>>({});
 
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("default");
   const [alertsOn, setAlertsOn] = useState(false);
@@ -146,13 +194,13 @@ export default function SnackBoard() {
       setToday(day);
       setMode(payload.storageMode);
 
-      setPhotoUrl(
-        day.hasPhoto
-          ? `/api/photo?v=${encodeURIComponent(day.photoVersion ?? "now")}`
-          : null,
-      );
-      // 사진이 지워지면 열려 있던 크게 보기 창도 함께 닫습니다.
-      if (!day.hasPhoto) setLightboxOpen(false);
+      // 사진이 지워지면 열려 있던 크게 보기 창도 함께 닫고, 순번이 넘치면 마지막 장으로 당깁니다.
+      setLightboxIndex((previous) => {
+        if (previous === null) return null;
+        const count = day.photos.length;
+        if (count === 0) return null;
+        return Math.min(previous, count - 1);
+      });
 
       if (document.activeElement !== labelRef.current) setLabelDraft(day.label);
       if (document.activeElement !== memoRef.current) setMemoDraft(day.memo);
@@ -218,6 +266,11 @@ export default function SnackBoard() {
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 20_000);
     return () => clearInterval(timer);
+  }, []);
+
+  // 이 브라우저에서 남긴 댓글 id 불러오기 (내 댓글 지우기 버튼용)
+  useEffect(() => {
+    setMyComments(loadMyComments());
   }, []);
 
   // 알림 권한 / 서비스 워커 준비
@@ -342,7 +395,7 @@ export default function SnackBoard() {
     setPendingChange(null);
   }, [sending]);
 
-  const closeLightbox = useCallback(() => setLightboxOpen(false), []);
+  const closeLightbox = useCallback(() => setLightboxIndex(null), []);
 
   async function confirmPending() {
     if (!pendingChange || sending) return;
@@ -393,49 +446,149 @@ export default function SnackBoard() {
     }
   }
 
-  async function handlePhoto(file: File | undefined) {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
+  async function handlePhotos(fileList: FileList | null) {
+    const files = Array.from(fileList ?? []).filter((file) => file.type.startsWith("image/"));
+    if (files.length === 0) {
       notify("이미지 파일만 올릴 수 있어요.");
       return;
     }
 
-    setUploading(true);
+    const current = today?.photos.length ?? 0;
+    const room = MAX_PHOTOS_PER_DAY - current;
+    if (room <= 0) {
+      notify(`사진은 ${MAX_PHOTOS_PER_DAY}장까지예요. 하나 지우고 다시 올려 주세요.`);
+      return;
+    }
+
+    const accepted = files.slice(0, room);
+    if (accepted.length < files.length) {
+      notify(`사진은 ${MAX_PHOTOS_PER_DAY}장까지라서 ${files.length - accepted.length}장은 건너뛸게요.`);
+    }
+
+    setUploading(accepted.length > 1 ? `사진 줄이는 중… (1/${accepted.length})` : "사진 올리는 중…");
     try {
-      const dataUrl = await compressImageToDataUrl(file);
+      // 여러 장을 한 장씩 줄입니다. (모바일에서 메모리를 아끼려고 순서대로)
+      const dataUrls: string[] = [];
+      for (let index = 0; index < accepted.length; index += 1) {
+        const file = accepted[index];
+        if (!file) continue;
+        if (accepted.length > 1) setUploading(`사진 줄이는 중… (${index + 1}/${accepted.length})`);
+        dataUrls.push(
+          await compressImageToDataUrl(file, {
+            maxSide: PHOTO_MAX_SIDE,
+            targetBytes: PHOTO_TARGET_BYTES,
+          }),
+        );
+      }
+
+      setUploading(accepted.length > 1 ? `사진 ${accepted.length}장 올리는 중…` : "사진 올리는 중…");
       const payload = await sendJson("/api/photo", {
         method: "POST",
-        body: JSON.stringify({ dataUrl }),
+        body: JSON.stringify({ dataUrls }),
       });
       applyStatus(payload, { announce: false });
       setLastSyncAt(Date.now());
       setSyncError(null);
-      notify("사진을 올렸어요 📸");
+      notify(
+        payload.warning ??
+          (dataUrls.length > 1 ? `사진 ${dataUrls.length}장을 올렸어요 📸` : "사진을 올렸어요 📸"),
+      );
     } catch (error) {
       notify(errorMessage(error));
     } finally {
-      setUploading(false);
+      setUploading(null);
     }
   }
 
-  async function removePhoto() {
-    if (!window.confirm("오늘 사진을 지울까요?")) return;
-    setUploading(true);
+  async function removePhoto(id: string) {
+    if (!window.confirm("이 사진을 지울까요?")) return;
+    setUploading("사진 지우는 중…");
     try {
-      const payload = await sendJson("/api/photo", { method: "DELETE" });
+      const payload = await sendJson(`/api/photo/${encodeURIComponent(id)}`, { method: "DELETE" });
       applyStatus(payload, { announce: false });
       setLastSyncAt(Date.now());
       notify("사진을 지웠어요.");
     } catch (error) {
       notify(errorMessage(error));
     } finally {
-      setUploading(false);
+      setUploading(null);
+    }
+  }
+
+  /** 이 브라우저에서 남긴 댓글 id 를 날짜별로 기억합니다. */
+  const rememberMyComment = useCallback((date: string, id: string) => {
+    setMyComments((previous) => {
+      const next = {
+        ...previous,
+        [date]: [...(previous[date] ?? []), id].slice(-MAX_COMMENTS_PER_DAY),
+      };
+      try {
+        window.localStorage.setItem(MY_COMMENTS_KEY, JSON.stringify(next));
+      } catch {
+        // 저장 공간이 막혀 있어도 이번 화면에서는 동작합니다.
+      }
+      return next;
+    });
+  }, []);
+
+  const forgetMyComment = useCallback((date: string, id: string) => {
+    setMyComments((previous) => {
+      const ids = previous[date];
+      if (!ids || !ids.includes(id)) return previous;
+      const next = { ...previous, [date]: ids.filter((item) => item !== id) };
+      try {
+        window.localStorage.setItem(MY_COMMENTS_KEY, JSON.stringify(next));
+      } catch {
+        // 위와 같음
+      }
+      return next;
+    });
+  }, []);
+
+  /** 익명 한 줄 댓글 남기기 — Teams 알림은 가지 않습니다. */
+  async function addComment() {
+    const text = commentDraft.trim();
+    if (!text || commentBusy) return;
+    setCommentBusy(true);
+    try {
+      const payload = await sendJson("/api/comments", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      });
+      applyStatus(payload, { announce: false });
+      setCommentDraft("");
+      if (payload.comment?.id) rememberMyComment(payload.today.date, payload.comment.id);
+      notify("한 줄 남겼어요 💬");
+    } catch (error) {
+      notify(errorMessage(error));
+    } finally {
+      setCommentBusy(false);
+    }
+  }
+
+  /** 내가 남긴 댓글 지우기 */
+  async function removeComment(id: string) {
+    if (commentBusy) return;
+    if (!window.confirm("이 댓글을 지울까요?")) return;
+    setCommentBusy(true);
+    try {
+      const payload = await sendJson("/api/comments", {
+        method: "DELETE",
+        body: JSON.stringify({ id }),
+      });
+      applyStatus(payload, { announce: false });
+      forgetMyComment(payload.today.date, id);
+      notify("댓글을 지웠어요.");
+    } catch (error) {
+      notify(errorMessage(error));
+    } finally {
+      setCommentBusy(false);
     }
   }
 
   async function resetDay() {
     if (busy) return;
-    if (!window.confirm("오늘 기록(상태·메모·사진·반응)을 모두 지울까요?")) return;
+    if (!window.confirm("오늘 기록(상태·메모·사진·반응·댓글)을 모두 지울까요?")) return;
     setBusy(true);
     try {
       const payload = await sendJson("/api/status", {
@@ -465,6 +618,7 @@ export default function SnackBoard() {
 
   const status: SnackStatus = today?.status ?? "waiting";
   const meta = STATUS_META[status];
+  const photos = photoViews(today);
   const reactionCounts = today?.reactions;
   const myReactionTotal = reactionCounts ? reactionTotal(reactionCounts) : 0;
   const dateLabel = today ? kstDateLabel(today.date) : "";
@@ -614,71 +768,105 @@ export default function SnackBoard() {
             <h2 className="photo__title" id="photo-title">
               오늘의 간식 사진
             </h2>
-            {today?.hasPhoto && today.photoVersion ? (
-              <span className="photo__stamp">{kstTimeLabel(today.photoVersion)}</span>
-            ) : null}
+            <span className="photo__stamp">
+              {photos.length > 0
+                ? `${photos.length} / ${MAX_PHOTOS_PER_DAY}장`
+                : `최대 ${MAX_PHOTOS_PER_DAY}장`}
+            </span>
           </div>
 
-          {photoUrl ? (
+          {photos.length > 0 ? (
             <div className="photo__frame">
-              <button
-                type="button"
-                className="photo__zoom"
-                onClick={() => setLightboxOpen(true)}
-                aria-haspopup="dialog"
-                aria-label="오늘의 간식 사진 크게 보기"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="photo__image" src={photoUrl} alt="오늘의 간식 사진" />
-                <span className="photo__zoom-hint" aria-hidden="true">
-                  <span className="photo__zoom-icon">🔍</span> 눌러서 크게 보기
-                </span>
-              </button>
-              <div className="photo__actions">
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={uploading}
-                >
-                  다른 사진
-                </button>
-                <button
-                  type="button"
-                  className="ghost ghost--danger"
-                  onClick={() => void removePhoto()}
-                  disabled={uploading}
-                >
-                  지우기
-                </button>
+              <div className={photos.length === 1 ? "photo__grid photo__grid--single" : "photo__grid"}>
+                {photos.map((photo, index) => (
+                  <div key={photo.id} className="photo__tile">
+                    <button
+                      type="button"
+                      className="photo__zoom"
+                      onClick={() => setLightboxIndex(index)}
+                      aria-haspopup="dialog"
+                      aria-label={`${index + 1}번째 간식 사진 크게 보기`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img className="photo__image" src={photo.src} alt={photo.alt} />
+                      <span className="photo__zoom-hint" aria-hidden="true">
+                        <span className="photo__zoom-icon">🔍</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="photo__tile-remove"
+                      onClick={() => void removePhoto(photo.id)}
+                      disabled={uploading !== null}
+                      aria-label={`${index + 1}번째 사진 지우기`}
+                      title="이 사진 지우기"
+                    >
+                      <span aria-hidden="true">✕</span>
+                    </button>
+                  </div>
+                ))}
+
+                {photos.length < MAX_PHOTOS_PER_DAY ? (
+                  <button
+                    type="button"
+                    className="photo__tile photo__tile--add"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={uploading !== null}
+                    aria-label="사진 추가하기"
+                  >
+                    <span className="photo__tile-add-icon" aria-hidden="true">
+                      ＋
+                    </span>
+                    <small>사진 추가</small>
+                  </button>
+                ) : null}
               </div>
+
+              <p className="photo__actions-note">
+                사진을 누르면 크게 볼 수 있어요 · 좌우로 넘겨서 볼 수도 있어요
+              </p>
             </div>
           ) : (
             <button
               type="button"
               className="photo__drop"
               onClick={() => fileRef.current?.click()}
-              disabled={uploading}
+              disabled={uploading !== null}
             >
               <span className="photo__drop-icon" aria-hidden="true">
                 📷
               </span>
-              <span className="photo__drop-text">{uploading ? "올리는 중…" : "사진 올리기"}</span>
-              <small className="photo__drop-hint">800px 이하로 가볍게 줄여서 저장해요</small>
+              <span className="photo__drop-text">{uploading ?? "사진 올리기"}</span>
+              <small className="photo__drop-hint">
+                여러 장 고를 수 있어요 (최대 {MAX_PHOTOS_PER_DAY}장) · 가볍게 줄여서 저장해요
+              </small>
             </button>
           )}
+
+          {photos.length > 0 && uploading ? <p className="photo__progress">{uploading}</p> : null}
 
           <input
             ref={fileRef}
             type="file"
             accept="image/*"
+            multiple
             className="visually-hidden"
             onChange={(event) => {
-              void handlePhoto(event.target.files?.[0]);
+              void handlePhotos(event.target.files);
               event.target.value = "";
             }}
           />
         </section>
+
+        <CommentBoard
+          comments={today?.comments ?? []}
+          draft={commentDraft}
+          onDraftChange={setCommentDraft}
+          onSubmit={() => void addComment()}
+          busy={commentBusy}
+          myCommentIds={today ? (myComments[today.date] ?? []) : []}
+          onDelete={(id) => void removeComment(id)}
+        />
 
         <section className="history" aria-labelledby="history-title">
           <div className="history__head">
@@ -784,12 +972,12 @@ export default function SnackBoard() {
         </footer>
       </section>
 
-      {lightboxOpen && photoUrl ? (
+      {lightboxIndex !== null && photos.length > 0 ? (
         <PhotoLightbox
-          src={photoUrl}
-          alt={today?.label?.trim() ? `오늘의 간식 사진 — ${today.label.trim()}` : "오늘의 간식 사진"}
+          photos={photos}
+          index={Math.min(lightboxIndex, photos.length - 1)}
           caption={today?.label ?? null}
-          stamp={today?.photoVersion ? kstTimeLabel(today.photoVersion) : null}
+          onIndexChange={setLightboxIndex}
           onClose={closeLightbox}
         />
       ) : null}

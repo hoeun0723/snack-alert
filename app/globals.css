@@ -1293,3 +1293,380 @@ button:disabled {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ── 사진 여러 장 (그리드) ─────────────────────────────── */
+.photo__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* 사진이 한 장뿐일 때는 예전처럼 크게 한 장으로 보여 줍니다. */
+.photo__grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.photo__tile {
+  position: relative;
+  display: grid;
+}
+
+.photo__tile .photo__zoom {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.photo__tile .photo__image {
+  aspect-ratio: 1 / 1;
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+  border-radius: 16px;
+}
+
+.photo__grid--single .photo__image {
+  aspect-ratio: auto;
+  height: auto;
+  max-height: 440px;
+  object-fit: contain;
+}
+
+/* 사진이 한 장일 때는 "사진 추가" 칸을 사진 아래의 납작한 막대로 */
+.photo__grid--single .photo__tile--add {
+  aspect-ratio: auto;
+  padding: 12px 0;
+}
+
+.photo__tile .photo__zoom-hint {
+  right: 6px;
+  bottom: 6px;
+  padding: 4px 7px;
+  font-size: 10px;
+}
+
+.photo__tile-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 247, 236, 0.28);
+  background: rgba(61, 45, 30, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #fff7ec;
+  font-size: 11px;
+  line-height: 1;
+  box-shadow: 0 8px 16px -10px rgba(15, 9, 3, 0.9);
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+
+.photo__tile-remove:hover:not(:disabled) {
+  background: #b8594a;
+  transform: scale(1.06);
+}
+
+.photo__tile-remove:focus-visible {
+  outline: 3px solid rgba(248, 205, 143, 0.75);
+  outline-offset: 2px;
+}
+
+.photo__tile--add {
+  place-items: center;
+  gap: 2px;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  border-radius: 16px;
+  border: 1.5px dashed #ebd8bd;
+  background: #fffcf6;
+  color: var(--ink-soft);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.photo__tile--add:hover:not(:disabled) {
+  border-color: #e3bd8c;
+  background: #fff8ec;
+}
+
+.photo__tile-add-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.photo__tile--add small {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-faint);
+}
+
+.photo__actions-note {
+  margin: 0;
+  padding: 0 2px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  text-align: right;
+}
+
+.photo__progress {
+  margin: 0;
+  padding: 0 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--brown-deep);
+}
+
+/* ── 익명 한 줄 댓글 ──────────────────────────────────── */
+.comments {
+  display: grid;
+  gap: 9px;
+}
+
+.comments__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.comments__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+}
+
+.comments__total {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.comments__form {
+  display: flex;
+  gap: 8px;
+}
+
+.comments__input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #fffdfa;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--ink);
+}
+
+.comments__input::placeholder {
+  color: var(--ink-faint);
+}
+
+.comments__input:focus {
+  outline: none;
+  border-color: #e3bd8c;
+  box-shadow: 0 0 0 3px rgba(208, 143, 75, 0.14);
+}
+
+.comments__submit {
+  flex: none;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 0;
+  background: var(--brown);
+  color: #fff8ec;
+  font-size: 13.5px;
+  font-weight: 800;
+  font-family: inherit;
+  box-shadow: 0 10px 18px -12px rgba(140, 85, 32, 0.9);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.comments__submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.comments__submit:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+}
+
+.comments__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.comments__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 11px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #fffdfa;
+  animation: photo-in 0.28s ease both;
+}
+
+.comments__face {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--cream-deep);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.comments__body {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.comments__text {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.comments__time {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.comments__delete {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: #b8594a;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.comments__delete:hover:not(:disabled) {
+  background: #fdf2ef;
+}
+
+.comments__empty {
+  margin: 0;
+  padding: 14px 12px;
+  border-radius: 14px;
+  border: 1px dashed #ebd8bd;
+  background: #fffcf6;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+/* ── 라이트박스: 여러 장 넘겨 보기 ───────────────────── */
+.lightbox__stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 92vw;
+}
+
+.lightbox__image {
+  animation: photo-in 0.28s ease both;
+}
+
+.lightbox__nav {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0 0 3px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 247, 236, 0.3);
+  background: rgba(61, 45, 30, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #fff7ec;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 12px 24px -14px rgba(15, 9, 3, 0.9);
+  transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+.lightbox__nav--prev {
+  left: calc(10px + env(safe-area-inset-left));
+}
+
+.lightbox__nav--next {
+  right: calc(10px + env(safe-area-inset-right));
+}
+
+.lightbox__nav:hover:not(:disabled) {
+  background: rgba(61, 45, 30, 0.85);
+}
+
+.lightbox__nav:disabled {
+  opacity: 0.22;
+  cursor: default;
+}
+
+.lightbox__nav:focus-visible {
+  outline: 3px solid rgba(248, 205, 143, 0.75);
+  outline-offset: 3px;
+}
+
+.lightbox__counter {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255, 247, 236, 0.16);
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff3e2;
+}
+
+@media (hover: none) {
+  /* 터치 화면: ✕·‹·› 버튼으로만 조작해도 충분합니다. */
+  .lightbox__nav {
+    width: 40px;
+    height: 40px;
+    font-size: 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .photo__grid {
+    gap: 6px;
+  }
+
+  .comments__form {
+    gap: 6px;
+  }
+
+  .comments__submit {
+    padding: 0 13px;
+  }
+}
