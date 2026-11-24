@@ -714,21 +714,17 @@ button:disabled {
   padding: 0;
   display: grid;
   gap: 7px;
-  max-height: 336px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-/* 날짜를 펼쳤을 때는 사진·댓글이 잘리지 않게 목록을 더 넓게 */
-.history__list--tall {
-  max-height: 70vh;
 }
 
 .history__item {
   border-radius: 16px;
   background: #fffcf7;
   border: 1px solid var(--line);
+  /* 둥근 모서리 밖으로 나가는 배경만 잘라 냅니다.
+     overflow: clip 은 스크롤 컨테이너를 만들지 않아서, 펼친 카드 안의 사진에
+     포커스가 가도 카드가 제멋대로 스크롤되지 않습니다. (overflow: hidden 은 구형 브라우저용) */
   overflow: hidden;
+  overflow: clip;
 }
 
 /* 날짜 카드의 첫 줄 — 사진·댓글이 있으면 통째로 누를 수 있는 버튼입니다. */
@@ -1625,10 +1621,6 @@ button.history__row:focus-visible {
   .switch__button {
     padding: 13px 8px;
     font-size: 14px;
-  }
-
-  .history__list {
-    max-height: 400px;
   }
 }
 

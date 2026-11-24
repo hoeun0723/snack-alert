@@ -640,10 +640,8 @@ export default function SnackBoard() {
   const reactionCounts = today?.reactions;
   const myReactionTotal = reactionCounts ? reactionTotal(reactionCounts) : 0;
   const dateLabel = today ? kstDateLabel(today.date) : "";
-  // 히스토리에서 펼친 날이 있으면 목록을 더 넓게 보여 줍니다.
-  const hasOpenHistoryDay = history.some(
-    (day) => openDays[day.date] && (day.photos.length > 0 || day.comments.length > 0),
-  );
+  // 히스토리는 페이지 전체가 자연스럽게 늘어나고, 펼친 날의 사진·댓글도 잘리지 않습니다.
+  // (예전에는 목록에 max-height + overflow-y: auto 를 주어 펼친 내용이 잘렸습니다)
   // 왕관은 인기 간식이 나온 날 중 가장 최근 줄에만 붙입니다. (같은 간식이 반복돼도 한 번만)
   const popularTopDate = popular
     ? (history.find((day) => day.label.trim() === popular.label)?.date ?? null)
@@ -880,7 +878,7 @@ export default function SnackBoard() {
           </div>
 
           {history.length > 0 ? (
-            <ul className={hasOpenHistoryDay ? "history__list history__list--tall" : "history__list"}>
+            <ul className="history__list">
               {history.map((day) => {
                 const dayMeta = STATUS_META[day.status];
                 const total = reactionTotal(day.reactions);

@@ -109,7 +109,8 @@ export default function PhotoLightbox({
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
-      previouslyFocused?.focus?.();
+      // 화면은 창을 열기 전 그대로이므로, 포커스를 돌려주면서 스크롤이 튀지 않게 합니다.
+      previouslyFocused?.focus?.({ preventScroll: true });
     };
   }, []);
 
