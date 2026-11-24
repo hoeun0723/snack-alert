@@ -993,15 +993,15 @@ button.history__row:focus-visible {
 
 .carousel__image {
   width: 100%;
-  aspect-ratio: 4 / 3;
-  max-height: 440px;
+  aspect-ratio: 1 / 1;
+  max-height: 460px;
   object-fit: contain;
   border-radius: 18px;
   background: #f8efe3;
 }
 
 .carousel--compact .carousel__image {
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 1 / 1;
   max-height: none;
   border-radius: 14px;
 }
