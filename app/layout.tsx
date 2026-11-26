@@ -42,12 +42,18 @@ export const metadata: Metadata = {
     images: [OG_IMAGE],
   },
   icons: {
-    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
-    apple: [{ url: "/icon-180.png", sizes: "180x180" }],
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    // iOS 홈 화면 아이콘 (애플은 180×180 한 장을 봅니다)
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
+  // iOS: 홈 화면에 추가하면 주소창 없이 앱처럼 열립니다.
   appleWebApp: {
     capable: true,
-    title: "간식 알림",
+    title: "간식알림",
     statusBarStyle: "default",
   },
   formatDetection: { telephone: false },

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
 import CommentBoard from "@/components/CommentBoard";
+import InstallPrompt from "@/components/InstallPrompt";
 import PhotoCarousel from "@/components/PhotoCarousel";
 import PhotoLightbox, { type LightboxPhoto } from "@/components/PhotoLightbox";
 import SnackBuddy from "@/components/SnackBuddy";
@@ -279,7 +280,13 @@ export default function SnackBoard() {
     setMyComments(loadMyComments());
   }, []);
 
-  // 알림 권한 / 서비스 워커 준비
+  // 서비스 워커는 알림 지원 여부와 상관없이 항상 준비해 둡니다.
+  // (홈 화면에 추가·오프라인 안내·알림 클릭 처리가 모두 이 워커를 씁니다)
+  useEffect(() => {
+    void registerServiceWorker();
+  }, []);
+
+  // 알림 권한 / 아이폰 안내
   useEffect(() => {
     if (!notificationsSupported()) {
       setPermission("unsupported");
@@ -289,7 +296,6 @@ export default function SnackBoard() {
     const stored = window.localStorage.getItem(ALERTS_KEY) === "on";
     setAlertsOn(stored && Notification.permission === "granted");
     setIosHint(isIOSDevice() && !isStandaloneApp());
-    void registerServiceWorker();
   }, []);
 
   async function toggleAlerts() {
@@ -656,6 +662,8 @@ export default function SnackBoard() {
   return (
     <main className="page">
       <div className="page__glow" aria-hidden="true" />
+
+      <InstallPrompt />
 
       <section className="board" aria-labelledby="board-title">
         <header className="board__header">

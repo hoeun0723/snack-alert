@@ -121,10 +121,24 @@ export function isStandaloneApp(): boolean {
   return standalone || iosStandalone;
 }
 
+/**
+ * iOS 사파리인지 (아이폰·아이패드).
+ * 아이폰의 크롬·파이어폭스 등은 "홈 화면에 추가"가 없어서 사파리만 안내합니다.
+ */
+export function isIOSSafari(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const iPadOS = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+  const iOS = /iPad|iPhone|iPod/.test(ua) || iPadOS;
+  const anotherBrowser = /CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua);
+  return iOS && !anotherBrowser;
+}
+
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return null;
   try {
-    return await navigator.serviceWorker.register("/sw.js");
+    // 파일이 갱신되면 브라우저가 알아서 새 워커로 교체합니다 (sw.js 는 항상 네트워크에서 확인).
+    return await navigator.serviceWorker.register("/sw.js", { scope: "/" });
   } catch {
     return null;
   }

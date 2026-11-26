@@ -62,6 +62,22 @@
 
 ---
 
+## 4단계 · 홈 화면에 추가 (앱처럼 쓰기)
+
+사이트를 열면 위쪽에 작은 안내 배너가 떠요. 한 번만 설치하면 주소창 없이 앱처럼 열립니다. (닫으면 다시 조르지 않아요)
+
+| 기기 | 방법 |
+| --- | --- |
+| **안드로이드 크롬** | 배너의 **설치** 버튼을 누르면 끝 (홈 화면에 아이콘이 생깁니다) |
+| **아이폰 사파리** | 배너의 **방법 보기** → 사파리 아래 **공유(□↑)** → **홈 화면에 추가** → **추가** |
+| 데스크톱 크롬·엣지 | 주소창 오른쪽 **설치** 아이콘 또는 배너의 **설치** 버튼 |
+
+- 이미 홈 화면 아이콘으로 열었을 때는 배너가 나오지 않습니다.
+- 오프라인일 때는 앱이 “지금은 연결이 끊겼어요” 안내 화면을 보여 줍니다.
+- `/api/*` 응답은 서비스 워커가 **절대 캐시하지 않아서** 간식 상태·사진·댓글이 항상 최신으로 보입니다.
+
+---
+
 ## (선택) Microsoft Teams 로도 알림 보내기
 
 Vercel 프로젝트 **Settings → Environment Variables** 에 아래 값을 추가하고 Redeploy 하면,
@@ -226,6 +242,7 @@ components/
   PhotoLightbox.tsx     # 사진 크게 보기 (여러 장 좌우 넘기기·스와이프)
   ConfirmDialog.tsx     # Teams 알림 전 확인 팝업 (취소·ESC·배경 클릭으로 닫힘)
   SnackBuddy.tsx        # 간식 요정 캐릭터 (⏳ 대기 / 🍪 도착 / 💨 품절)
+  InstallPrompt.tsx     # 홈 화면에 추가 안내 (안드로이드 원클릭 · 아이폰 단계 안내)
 lib/
   store.ts              # Upstash Redis REST + 인메모리 fallback (MGET 히스토리)
   history.ts            # 히스토리 정리·인기 간식 계산
@@ -235,7 +252,11 @@ lib/
   site.ts               # 배포된 사이트 주소 계산 (링크·미리보기용)
   browser.ts            # 이미지 압축·알림·서비스 워커
 public/
-  sw.js, manifest.json, icon-*.png, og-image.png   # og-image = 링크 미리보기(1200×630)
+  sw.js                 # 서비스 워커 (설치 조건 + 알림 클릭 + 오프라인 안내 · /api 는 캐시 금지)
+  manifest.json         # 웹 앱 매니페스트 (이름·아이콘·standalone)
+  offline.html          # 오프라인일 때 보여 주는 안내 화면
+  icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png
+  og-image.png          # 링크 미리보기 (1200×630)
 ```
 
 ## 라이선스
