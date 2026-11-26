@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { isAndroidDevice, isInAppBrowser, isIOSDevice, isStandaloneApp } from "@/lib/browser";
 
@@ -87,6 +87,15 @@ export default function InstallPrompt() {
     };
   }, []);
 
+  /** 탭은 방향키로도 오갈 수 있게 합니다. (←/→) */
+  function onTabKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const next: Platform = platform === "ios" ? "android" : "ios";
+    setPlatform(next);
+    document.getElementById(`install-tab-${next}`)?.focus();
+  }
+
   function dismiss() {
     setVisible(false);
     try {
@@ -135,7 +144,12 @@ export default function InstallPrompt() {
         </button>
       </div>
 
-      <div className="install__tabs" role="tablist" aria-label="기기별 설치 방법">
+      <div
+        className="install__tabs"
+        role="tablist"
+        aria-label="기기별 설치 방법"
+        onKeyDown={onTabKeyDown}
+      >
         <button
           type="button"
           role="tab"
