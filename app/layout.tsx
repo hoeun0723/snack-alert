@@ -56,6 +56,11 @@ export const metadata: Metadata = {
     title: "간식알림",
     statusBarStyle: "default",
   },
+  // Next 는 표준인 mobile-web-app-capable 를 넣어 줍니다.
+  // 구형 iOS 사파리도 전체화면으로 열리도록 예전 이름의 메타 태그도 함께 넣습니다.
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+  },
   formatDetection: { telephone: false },
 };
 
