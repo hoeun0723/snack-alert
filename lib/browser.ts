@@ -114,6 +114,21 @@ export function isIOSDevice(): boolean {
   return /iPad|iPhone|iPod/.test(ua) || iPadOS;
 }
 
+export function isAndroidDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android/i.test(navigator.userAgent);
+}
+
+/**
+ * 카카오톡·인스타그램 같은 앱 안 브라우저인지.
+ * 앱 안에서는 홈 화면 추가가 안 되니 "먼저 Safari/크롬으로 열기"를 안내합니다.
+ */
+export function isInAppBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /KAKAOTALK|NAVER\(inapp|Instagram|FBAN|FBAV|Line\/|DaumApps|everytimeApp|Twitter/i.test(ua);
+}
+
 export function isStandaloneApp(): boolean {
   if (typeof window === "undefined") return false;
   const standalone = window.matchMedia?.("(display-mode: standalone)").matches ?? false;
