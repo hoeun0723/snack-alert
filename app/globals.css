@@ -1366,6 +1366,31 @@ button.history__row:focus-visible {
   font-weight: 800;
 }
 
+/* 아주 좁은 화면(320px 등)에서는 문구를 줄여 버너가 두 줄을 넘지 않게 합니다. */
+@media (max-width: 359px) {
+  .install {
+    padding: 10px 10px 10px 11px;
+  }
+
+  .install__row {
+    gap: 7px;
+  }
+
+  .install__sub {
+    display: none;
+  }
+
+  .install__title {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .install__action {
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+}
+
 /* ── 확인 팝업 (Teams 알림 전송 전) ─────────────────────── */
 .modal {
   position: fixed;
