@@ -167,6 +167,26 @@ button:disabled {
   color: var(--brown-deep);
 }
 
+/* 휴대폰 알림 안내 한 줄 — 켤 수 없는 이유나 켜진 상태를 짧게 알려 줍니다. */
+.push-note {
+  margin: -6px 0 0;
+  padding: 10px 13px;
+  border-radius: 14px;
+  border: 1px dashed #eed3ab;
+  background: #fff7e8;
+  color: var(--brown-deep);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* 아주 좁은 화면(320px 등)에서는 휴대폰 알림 버튼도 줄입니다. */
+@media (max-width: 359px) {
+  .bell {
+    padding: 8px 10px;
+    font-size: 11.5px;
+  }
+}
+
 /* ── 큰 상태 카드 ──────────────────────────────────────── */
 .hero {
   position: relative;

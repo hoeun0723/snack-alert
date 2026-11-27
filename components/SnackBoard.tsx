@@ -10,11 +10,15 @@ import PhotoLightbox, { type LightboxPhoto } from "@/components/PhotoLightbox";
 import SnackBuddy from "@/components/SnackBuddy";
 import {
   compressImageToDataUrl,
-  isIOSDevice,
-  isStandaloneApp,
+  currentPushSubscription,
+  isInAppBrowser,
+  needsIOSInstallForPush,
   notificationsSupported,
+  pushSupported,
   registerServiceWorker,
   showSnackNotification,
+  subscribeToPush,
+  unsubscribeFromPush,
 } from "@/lib/browser";
 import { faceFor } from "@/lib/faces";
 import { kstDateLabel, kstTimeLabel, relativeTime } from "@/lib/kst";
@@ -40,7 +44,6 @@ import {
 /** 화면이 보일 때 15초, 백그라운드일 때 60초마다 확인 (무료 Redis 명령 한도를 아끼기 위해) */
 const POLL_VISIBLE_MS = 15_000;
 const POLL_HIDDEN_MS = 60_000;
-const ALERTS_KEY = "snack-alert:alerts";
 /** 이 브라우저에서 남긴 댓글 id (날짜별). 내 댓글에만 지우기 버튼을 보여 주려고 씁니다. */
 const MY_COMMENTS_KEY = "snack-alert:my-comments";
 /** 사진 여러 장을 올릴 때 장당 목표 용량 (data URL 글자 수 기준, 약 130KB) */
@@ -63,6 +66,24 @@ type Notice = { id: number; text: string };
 
 /** Teams 알림이 나가는 상태 변경 — 확인 팝업에서 한 번 더 물어봅니다. */
 type PendingChange = { next: SnackStatus; kind: "arrived" | "sold_out" };
+
+/** GET /api/push/subscribe 응답 — 알림 키 설정 여부와 구독에 쓰는 공개 키 */
+interface PushConfig {
+  configured: boolean;
+  publicKey: string | null;
+  subscriberCount?: number;
+}
+
+/** 이 기기의 휴대폰 알림 환경 */
+interface PushEnvironment {
+  /** PushManager·서비스 워커·Notification 지원 여부 */
+  supported: boolean;
+  /** 아이폰인데 홈 화면에 추가하지 않은 상태 */
+  needsInstall: boolean;
+  /** 카카오톡 같은 앱 안 브라우저 */
+  inApp: boolean;
+  permission: NotificationPermission | "unsupported";
+}
 
 function errorMessage(error: unknown): string {
   if (error instanceof TypeError) {
@@ -139,20 +160,32 @@ export default function SnackBoard() {
   /** 날짜별로 이 브라우저에서 남긴 댓글 id (내 댓글에만 지우기 버튼) */
   const [myComments, setMyComments] = useState<Record<string, string[]>>({});
 
-  const [permission, setPermission] = useState<NotificationPermission | "unsupported">("default");
-  const [alertsOn, setAlertsOn] = useState(false);
-  const [iosHint, setIosHint] = useState(false);
+  /** 이 기기의 푸시 환경 (지원 여부·홈 화면 앱 여부·알림 권한) */
+  const [pushEnv, setPushEnv] = useState<PushEnvironment>({
+    supported: false,
+    needsInstall: false,
+    inApp: false,
+    permission: "unsupported",
+  });
+  /** 기기 환경을 확인했는지 (확인 전에는 버튼을 잠시 기다리게 합니다) */
+  const [pushEnvReady, setPushEnvReady] = useState(false);
+  /** 서버 VAPID 키 설정 상태 (null = 확인 중) */
+  const [pushConfig, setPushConfig] = useState<PushConfig | null>(null);
+  /** 이 기기가 지금 휴대폰 알림을 받고 있는지 */
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
 
   const labelRef = useRef<HTMLInputElement>(null);
   const memoRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastStatusRef = useRef<SnackStatus | null>(null);
-  const alertsOnRef = useRef(false);
+  /** 휴대폰 알림을 켠 기기인지 — 켜져 있으면 화면 알림을 또 띄우지 않습니다. */
+  const pushSubscribedRef = useRef(false);
 
   useEffect(() => {
-    alertsOnRef.current = alertsOn;
-  }, [alertsOn]);
+    pushSubscribedRef.current = pushSubscribed;
+  }, [pushSubscribed]);
 
   const notify = useCallback((text: string) => {
     setNotice({ id: Date.now(), text });
@@ -168,7 +201,9 @@ export default function SnackBoard() {
   );
 
   const announceArrival = useCallback((day: DayView) => {
-    if (!alertsOnRef.current) return;
+    // 휴대폰 알림을 켠 기기는 서버가 알려 주므로 여기서 또 띄우지 않습니다.
+    if (pushSubscribedRef.current) return;
+    if (!notificationsSupported() || Notification.permission !== "granted") return;
     const parts = [day.label, day.memo].filter((part) => part.trim().length > 0);
     void showSnackNotification(
       "🍪 간식 도착했어요!",
@@ -286,51 +321,126 @@ export default function SnackBoard() {
     void registerServiceWorker();
   }, []);
 
-  // 알림 권한 / 아이폰 안내
+  // 휴대폰 알림 준비 — 서버 키 설정 상태와 이 기기의 구독 여부를 확인합니다.
   useEffect(() => {
-    if (!notificationsSupported()) {
-      setPermission("unsupported");
-      return;
-    }
-    setPermission(Notification.permission);
-    const stored = window.localStorage.getItem(ALERTS_KEY) === "on";
-    setAlertsOn(stored && Notification.permission === "granted");
-    setIosHint(isIOSDevice() && !isStandaloneApp());
+    setPushEnv({
+      supported: pushSupported(),
+      needsInstall: needsIOSInstallForPush(),
+      inApp: isInAppBrowser(),
+      permission: notificationsSupported() ? Notification.permission : "unsupported",
+    });
+    setPushEnvReady(true);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/push/subscribe", { cache: "no-store" });
+        if (!response.ok) throw new Error("push-config-failed");
+        const payload = (await response.json()) as PushConfig;
+        if (!cancelled) setPushConfig(payload);
+      } catch {
+        // 서버 키를 읽지 못해도 화면은 그대로 열려야 합니다. (버튼은 안내 문구와 함께 잠시 비활성)
+        if (!cancelled) setPushConfig({ configured: false, publicKey: null });
+      }
+
+      const subscription = await currentPushSubscription();
+      if (!cancelled) setPushSubscribed(subscription !== null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  async function toggleAlerts() {
-    if (!notificationsSupported()) {
-      notify("이 브라우저는 알림을 지원하지 않아요. 화면을 열어두면 자동으로 확인해요.");
+  /**
+   * 이 기기에서 휴대폰 알림을 켜기 어려운 이유.
+   * null 이면 켤 수 있는 상태입니다. (확인 중에도 null)
+   */
+  const pushBlockReason = (() => {
+    if (!pushEnvReady) return null;
+    if (pushEnv.inApp) return "앱 안에서 열려 있어요. Safari·크롬으로 열면 알림을 켤 수 있어요.";
+    if (pushEnv.needsInstall) return "아이폰은 홈 화면에 추가한 앱에서 알림을 켤 수 있어요.";
+    if (!pushEnv.supported) {
+      return "이 브라우저는 백그라운드 알림을 지원하지 않아요. 화면을 열어 두면 자동으로 확인해요.";
+    }
+    if (pushConfig === null) return null;
+    if (!pushConfig.configured || !pushConfig.publicKey) {
+      return "관리자 알림 키 설정 대기 중이에요. 지금은 화면을 열어 두면 자동으로 확인해요.";
+    }
+    if (pushEnv.permission === "denied") {
+      return "기기·브라우저 설정에서 이 사이트의 알림을 허용해 주세요.";
+    }
+    return null;
+  })();
+
+  /** 버튼 아래 짧은 안내 — 끄거나 켤 수 없는 이유, 또는 켜진 상태 */
+  const pushNoteText =
+    pushBlockReason ??
+    (pushSubscribed ? "이 기기로 간식 도착 알림을 받아요. 앱을 닫아도 와요." : null);
+
+  /** 🔔 간식 알림 받기 / 🔔 알림 켜짐 — 이 기기의 휴대폰 알림을 켜고 끕니다. */
+  async function togglePush() {
+    if (pushBusy) return;
+    if (pushBlockReason) {
+      notify(pushBlockReason);
       return;
     }
+    if (!pushConfig?.configured || !pushConfig.publicKey) return;
 
-    if (Notification.permission === "granted") {
-      const next = !alertsOn;
-      setAlertsOn(next);
-      window.localStorage.setItem(ALERTS_KEY, next ? "on" : "off");
-      if (next) {
-        await registerServiceWorker();
-        await showSnackNotification("알림을 켰어요 🍪", "간식이 도착하면 이 컴퓨터로 바로 알려드릴게요.");
+    setPushBusy(true);
+    try {
+      // 끄기 — 이 기기 구독을 지우고 서버 기록도 함께 정리합니다.
+      if (pushSubscribed) {
+        const endpoint = await unsubscribeFromPush();
+        if (endpoint) {
+          await fetch("/api/push/subscribe", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint }),
+            cache: "no-store",
+          }).catch(() => undefined);
+        }
+        setPushSubscribed(false);
+        notify("휴대폰 알림을 껐어요 🔕");
+        return;
       }
-      notify(next ? "알림을 켰어요 🔔" : "알림을 잠시 꺼뒀어요 🔕");
-      return;
-    }
 
-    if (Notification.permission === "denied") {
-      notify("브라우저 설정에서 이 사이트의 알림을 허용해 주세요.");
-      return;
-    }
+      // 켜기 — 먼저 알림 권한을 받고, 그 다음 이 기기를 구독합니다.
+      const permission =
+        Notification.permission === "granted"
+          ? "granted"
+          : await Notification.requestPermission();
+      setPushEnv((previous) => ({ ...previous, permission }));
+      if (permission !== "granted") {
+        notify("알림이 허용되지 않았어요. 기기 설정에서 허용한 뒤 다시 켜 주세요.");
+        return;
+      }
 
-    const result = await Notification.requestPermission();
-    setPermission(result);
-    if (result === "granted") {
-      setAlertsOn(true);
-      window.localStorage.setItem(ALERTS_KEY, "on");
-      await registerServiceWorker();
-      await showSnackNotification("알림을 켰어요 🍪", "간식이 도착하면 이 컴퓨터로 바로 알려드릴게요.");
-      notify("알림을 켰어요 🔔");
-    } else {
-      notify("알림이 허용되지 않았어요. 나중에 다시 켤 수 있어요.");
+      const subscription = await subscribeToPush(pushConfig.publicKey);
+      const response = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(subscription.toJSON()),
+        cache: "no-store",
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        subscriberCount?: number;
+      };
+      if (!response.ok) throw new Error(payload.error ?? "알림 구독을 저장하지 못했어요.");
+
+      setPushConfig((previous) =>
+        previous
+          ? { ...previous, subscriberCount: payload.subscriberCount ?? previous.subscriberCount }
+          : previous,
+      );
+      setPushSubscribed(true);
+      notify("휴대폰 알림을 켰어요 🔔 앱을 닫아도 알려드릴게요.");
+    } catch (error) {
+      notify(errorMessage(error));
+    } finally {
+      setPushBusy(false);
     }
   }
 
@@ -685,15 +795,22 @@ export default function SnackBoard() {
 
           <button
             type="button"
-            className={alertsOn ? "bell bell--on" : "bell"}
-            onClick={() => void toggleAlerts()}
-            aria-pressed={alertsOn}
-            title="간식이 도착하면 브라우저 알림으로 알려드려요"
+            className={pushSubscribed ? "bell bell--on" : "bell"}
+            onClick={() => void togglePush()}
+            aria-pressed={pushSubscribed}
+            disabled={pushBusy || !pushEnvReady || pushConfig === null || pushBlockReason !== null}
+            title="간식이 도착하면 휴대폰 알림으로 알려드려요"
           >
-            <span aria-hidden="true">{alertsOn ? "🔔" : "🔕"}</span>
-            <span>{alertsOn ? "알림 켜짐" : "알림 켜기"}</span>
+            <span aria-hidden="true">{pushBusy ? "⏳" : "🔔"}</span>
+            <span>{pushSubscribed ? "알림 켜짐" : "간식 알림 받기"}</span>
           </button>
         </header>
+
+        {pushNoteText ? (
+          <p className="push-note" role="status">
+            {pushNoteText}
+          </p>
+        ) : null}
 
         <div className={heroClass(status)}>
           <SnackBuddy status={status} />
@@ -1031,11 +1148,9 @@ export default function SnackBoard() {
           ) : null}
 
           <p className="hint">
-            {permission === "unsupported"
-              ? "이 브라우저는 알림을 지원하지 않아요. 화면을 열어두면 15초마다 자동으로 확인합니다."
-              : iosHint
-                ? "아이폰은 공유 → ‘홈 화면에 추가’ 후에 알림을 켤 수 있어요. (iOS 16.4+)"
-                : "알림은 이 화면이 열려 있을 때 15초마다 확인해서 알려드려요. 알림이 안 뜨면 주소창 옆 설정에서 허용해 주세요."}
+            화면을 열어 둔 동안에는 15초마다 자동으로 확인해요. 휴대폰 알림을 켜면 앱을 닫아도
+            간식이 도착하는 순간 알려드리고, 알림이 안 뜨면 기기 설정에서 이 사이트의 알림을 허용해
+            주세요.
           </p>
 
           <div className="footnotes">

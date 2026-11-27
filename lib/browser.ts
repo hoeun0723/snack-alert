@@ -189,3 +189,76 @@ export async function showSnackNotification(title: string, body: string): Promis
     return false;
   }
 }
+
+/* ── 휴대폰 푸시 알림 (Web Push) ─────────────────────────── */
+
+/**
+ * 이 브라우저가 백그라운드 푸시를 쓸 수 있는지.
+ * (안드로이드 크롬·삼성인터넷, 데스크톱 크롬·엣지, iOS 16.4+ 홈 화면 앱)
+ */
+export function pushSupported(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    "Notification" in window &&
+    "serviceWorker" in navigator &&
+    "PushManager" in window
+  );
+}
+
+/**
+ * 아이폰·아이패드에서 홈 화면에 추가하지 않은 상태인지.
+ * iOS 는 16.4 부터 "홈 화면에 추가한 앱"에서만 푸시를 받을 수 있습니다.
+ */
+export function needsIOSInstallForPush(): boolean {
+  return isIOSDevice() && !isStandaloneApp();
+}
+
+/** VAPID 공개 키(base64url)를 브라우저가 쓰는 Uint8Array 로 바꿉니다. */
+export function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(base64);
+  const bytes = new Uint8Array(raw.length);
+  for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
+  return bytes;
+}
+
+/** 지금 이 기기에 저장된 푸시 구독 (없으면 null) */
+export async function currentPushSubscription(): Promise<PushSubscription | null> {
+  if (!pushSupported()) return null;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) return null;
+    return (await registration.pushManager.getSubscription()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** 서비스 워커를 준비하고, VAPID 공개 키로 이 기기를 구독합니다. */
+export async function subscribeToPush(publicKey: string): Promise<PushSubscription> {
+  const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  await navigator.serviceWorker.ready;
+
+  const existing = await registration.pushManager.getSubscription();
+  if (existing) return existing;
+
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
+  });
+}
+
+/** 이 기기의 구독을 해제하고, 해제한 endpoint 를 돌려줍니다. */
+export async function unsubscribeFromPush(): Promise<string | null> {
+  const subscription = await currentPushSubscription();
+  if (!subscription) return null;
+
+  const endpoint = subscription.endpoint;
+  try {
+    await subscription.unsubscribe();
+  } catch {
+    // 브라우저가 이미 지운 구독이면 서버 기록만 정리하면 됩니다.
+  }
+  return endpoint;
+}

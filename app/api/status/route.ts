@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { kstDateKey, shiftDateKey } from "@/lib/kst";
+import { sendArrivalPush } from "@/lib/push";
 import { clearDay, readDay, storageMode, writeDay } from "@/lib/store";
 import { notifyTeams } from "@/lib/teams";
 import {
@@ -148,7 +149,21 @@ export async function POST(request: Request) {
 
     // request 를 넘겨 배포된 사이트 주소(x-forwarded-host 등)를 카드 버튼·미리보기에 씁니다.
     if (announceArrival) {
-      await notifyTeams(next, request, "arrived");
+      // 팀 알림(Teams)과 휴대폰 알림(Web Push)을 함께 보냅니다.
+      // 어느 한쪽이 실패해도 상태 저장은 그대로 성공으로 돌려줍니다.
+      const deliveries = await Promise.allSettled([
+        notifyTeams(next, request, "arrived"),
+        sendArrivalPush(next),
+      ]);
+      const push = deliveries[1];
+      if (push?.status === "fulfilled") {
+        const { subscribers, sent, failed, removed } = push.value;
+        if (subscribers > 0) {
+          console.log(`[api/status] 푸시 알림 ${sent}건 발송 · 실패 ${failed}건 · 만료 정리 ${removed}건`);
+        }
+      } else if (push) {
+        console.error("[api/status] 푸시 알림 발송 실패", push.reason);
+      }
     } else if (announceSoldOut) {
       await notifyTeams(next, request, "sold_out");
     }

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   emptyDay,
   HISTORY_DAYS,
@@ -25,6 +27,11 @@ import {
 const DAY_TTL_SECONDS = 60 * 60 * 24 * HISTORY_DAYS;
 const STATUS_PREFIX = "snack:status:";
 const PHOTO_PREFIX = "snack:photo:";
+/** 푸시 구독 — 본문(`snack:push:sub:{id}`)과 목록(`snack:push:subs`, Redis Set) */
+const PUSH_ITEM_PREFIX = "snack:push:sub:";
+const PUSH_INDEX_KEY = "snack:push:subs";
+/** 오랫동안 사이트를 안 연 기기는 180일 뒤 구독을 정리합니다. */
+const PUSH_TTL_SECONDS = 60 * 60 * 24 * 180;
 
 /**
  * 예전 단일 사진은 `snack:photo:{날짜}` 키에 그대로 두고,
@@ -123,6 +130,66 @@ async function kvDelete(key: string): Promise<void> {
     return;
   }
   await command(["DEL", key]);
+}
+
+/**
+ * 집합(Set) 추가/조회/삭제.
+ * 메모리 대체 저장소에서는 같은 키에 JSON 배열을 넣어 흉내 냅니다.
+ */
+async function kvSAdd(key: string, members: string[]): Promise<void> {
+  if (members.length === 0) return;
+  if (!redisConfig()) {
+    const entry = memoryStore().get(key);
+    let current: string[] = [];
+    if (entry && entry.expiresAt >= Date.now()) {
+      try {
+        const parsed = JSON.parse(entry.value) as unknown;
+        if (Array.isArray(parsed)) current = parsed.filter((item): item is string => typeof item === "string");
+      } catch {
+        current = [];
+      }
+    }
+    const next = [...new Set([...current, ...members])];
+    memoryStore().set(key, { value: JSON.stringify(next), expiresAt: Date.now() + PUSH_TTL_SECONDS * 1000 });
+    return;
+  }
+  await command(["SADD", key, ...members]);
+}
+
+async function kvSMembers(key: string): Promise<string[]> {
+  if (!redisConfig()) {
+    const entry = memoryStore().get(key);
+    if (!entry || entry.expiresAt < Date.now()) return [];
+    try {
+      const parsed = JSON.parse(entry.value) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+  return (await command<string[]>(["SMEMBERS", key])) ?? [];
+}
+
+async function kvSRem(key: string, members: string[]): Promise<void> {
+  if (members.length === 0) return;
+  if (!redisConfig()) {
+    const entry = memoryStore().get(key);
+    if (!entry) return;
+    let current: string[] = [];
+    try {
+      const parsed = JSON.parse(entry.value) as unknown;
+      if (Array.isArray(parsed)) current = parsed.filter((item): item is string => typeof item === "string");
+    } catch {
+      current = [];
+    }
+    const drop = new Set(members);
+    memoryStore().set(key, {
+      value: JSON.stringify(current.filter((item) => !drop.has(item))),
+      expiresAt: entry.expiresAt,
+    });
+    return;
+  }
+  await command(["SREM", key, ...members]);
 }
 
 function statusKey(date: string): string {
@@ -261,4 +328,106 @@ export async function deleteAllPhotos(date: string): Promise<void> {
 export function remainingPhotoSlots(day: DayView | null): number {
   const used = day?.photos.length ?? 0;
   return Math.max(0, MAX_PHOTOS_PER_DAY - used);
+}
+
+/* ── 휴대폰 푸시 구독 ──────────────────────────────────── */
+
+/** 브라우저가 준 구독 정보를 저장소에 그대로 담습니다. */
+export interface StoredPushSubscription {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  createdAt: string;
+}
+
+/** 구독 주소는 길어서, 키로 쓸 짧은 id 로 바꿉니다. (같은 주소는 항상 같은 id) */
+function pushId(endpoint: string): string {
+  return createHash("sha256").update(endpoint).digest("hex").slice(0, 40);
+}
+
+function pushItemKey(endpoint: string): string {
+  return `${PUSH_ITEM_PREFIX}${pushId(endpoint)}`;
+}
+
+function parsePushSubscription(raw: string | null): StoredPushSubscription | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredPushSubscription>;
+    const keys = parsed.keys;
+    if (
+      typeof parsed.endpoint !== "string" ||
+      !parsed.endpoint ||
+      !keys ||
+      typeof keys.p256dh !== "string" ||
+      typeof keys.auth !== "string"
+    ) {
+      return null;
+    }
+    return {
+      endpoint: parsed.endpoint,
+      keys: { p256dh: keys.p256dh, auth: keys.auth },
+      createdAt:
+        typeof parsed.createdAt === "string" ? parsed.createdAt : new Date(0).toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 푸시 구독을 저장합니다. 같은 endpoint 는 새로 쌓지 않고 최신 정보로 바꿉니다.
+ */
+export async function savePushSubscription(input: {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}): Promise<StoredPushSubscription> {
+  const record: StoredPushSubscription = {
+    endpoint: input.endpoint,
+    keys: { p256dh: input.keys.p256dh, auth: input.keys.auth },
+    createdAt: new Date().toISOString(),
+  };
+
+  const id = pushId(record.endpoint);
+  await kvSet(`${PUSH_ITEM_PREFIX}${id}`, JSON.stringify(record), PUSH_TTL_SECONDS);
+  await kvSAdd(PUSH_INDEX_KEY, [id]);
+  return record;
+}
+
+/** 저장된 구독을 모두 읽습니다. 사라진 구독은 목록에서도 지웁니다. */
+export async function listPushSubscriptions(): Promise<StoredPushSubscription[]> {
+  const ids = await kvSMembers(PUSH_INDEX_KEY);
+  if (ids.length === 0) return [];
+
+  const raws = await Promise.all(ids.map((id) => kvGet(`${PUSH_ITEM_PREFIX}${id}`)));
+  const subscriptions: StoredPushSubscription[] = [];
+  const stale: string[] = [];
+
+  raws.forEach((raw, index) => {
+    const subscription = parsePushSubscription(raw);
+    if (subscription) subscriptions.push(subscription);
+    else stale.push(ids[index] as string);
+  });
+
+  // 오래되어 사라진 항목은 목록에서 조용히 정리합니다.
+  if (stale.length > 0) {
+    try {
+      await kvSRem(PUSH_INDEX_KEY, stale);
+    } catch {
+      // 정리에 실패해도 이번 읽기 결과는 그대로 돌려줍니다.
+    }
+  }
+
+  return subscriptions;
+}
+
+/** 구독을 해제합니다. (브라우저에서 알림을 끈 경우) */
+export async function deletePushSubscription(endpoint: string): Promise<boolean> {
+  const id = pushId(endpoint);
+  await kvDelete(`${PUSH_ITEM_PREFIX}${id}`);
+  await kvSRem(PUSH_INDEX_KEY, [id]);
+  return true;
+}
+
+/** 지금 알림을 받는 기기 수 */
+export async function countPushSubscriptions(): Promise<number> {
+  return (await listPushSubscriptions()).length;
 }
